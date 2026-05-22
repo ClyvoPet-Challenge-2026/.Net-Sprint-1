@@ -3,8 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace ClyvoCare.API.Controllers;
 
 /// <summary>
-/// Endpoint mínimo para verificar se a API está no ar.
-/// Útil para health checks de load balancer e para validar que o projeto sobe corretamente.
+/// Endpoint para verificar se a API está no ar.
 /// </summary>
 [Route("api/[controller]")]
 [ApiController]

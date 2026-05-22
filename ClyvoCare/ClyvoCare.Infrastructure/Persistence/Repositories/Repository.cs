@@ -56,6 +56,6 @@ public class Repository<T>(ClyvoCareContext context) : IRepository<T> where T : 
 
     public bool ExistsById(long id)
     {
-        return _set.Any(e => e.Id == id);
+        return _set.Count(e => e.Id == id) > 0;
     }
 }

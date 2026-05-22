@@ -13,6 +13,8 @@ public class ClyvoCareContext(DbContextOptions<ClyvoCareContext> options) : DbCo
 
     public DbSet<City> Cities { get; set; }
 
+    public DbSet<Clinic> Clinics { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ClyvoCareContext).Assembly);
