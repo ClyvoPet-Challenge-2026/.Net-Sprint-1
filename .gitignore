@@ -1,0 +1,49 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio / Rider / VS Code
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.sln.DotSettings.user
+
+# Rider
+*.DotSettings.user
+
+# ASP.NET secrets / local config
+appsettings.*.local.json
+appsettings.Local.json
+secrets.json
+
+# EF Core local databases
+*.db
+*.db-shm
+*.db-wal
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+
+# Publish output
+publish/
+PublishProfiles/
+*.pubxml
+*.pubxml.user
+
+# Build logs
+*.binlog
