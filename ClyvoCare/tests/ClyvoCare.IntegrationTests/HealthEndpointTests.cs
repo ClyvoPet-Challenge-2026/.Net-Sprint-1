@@ -2,7 +2,8 @@ using System.Text.Json;
 
 namespace ClyvoCare.IntegrationTests;
 
-public class HealthEndpointTests : IClassFixture<CustomWebApplicationFactory>
+[Collection(IntegrationTestCollection.Name)]
+public class HealthEndpointTests
 {
     private readonly HttpClient _client;
 

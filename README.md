@@ -177,6 +177,26 @@ Se qualquer check falhar, o endpoint responde `503` e o item correspondente traz
 
 Toda exceção não tratada passa pelo `GlobalExceptionHandler`, que loga com um `TraceId` (via `Activity.Current`) junto da mensagem — dá pra correlacionar uma linha de log com a resposta que o cliente recebeu.
 
+## Testes
+
+Três projetos em `tests/`, seguindo o padrão do Recommenda (xunit, nomenclatura `Metodo_Cenario_ResultadoEsperado`, blocos `//Arrange //Act //Assert`):
+
+- **`ClyvoCare.Domain.Tests`** — invariantes da entidade `Clinic` (`Create`/`Update`, validações de nome/cnpj/cityId, trim de campos).
+- **`ClyvoCare.Application.Tests`** — `ClinicService`, `CityService` e `StateService` com Moq, mockando os repositórios. `City` e `State` só têm construtor privado (são somente-leitura nessa API — quem escreve é a API Java), então um helper de reflection (`TestEntityFactory`) monta os fixtures de teste.
+- **`ClyvoCare.IntegrationTests`** — `WebApplicationFactory<Program>` com SQLite in-memory no lugar do Oracle, testando os endpoints de `/api/clinicas` e de `/health`/`/metrics` ponta a ponta via HTTP real. As duas classes de teste compartilham uma única instância da aplicação via `CollectionFixture`.
+
+Rodar tudo:
+
+```bash
+dotnet test
+```
+
+Cobertura (via `coverlet.collector`):
+
+```bash
+dotnet test --collect:"XPlat Code Coverage"
+```
+
 ## Decisões importantes do projeto
 
 Algumas escolhas que valem ser explicadas, principalmente as que não são óbvias só lendo o código.
@@ -209,7 +229,6 @@ A gente é honesto sobre o que não está pronto nessa sprint:
 - **Sem autenticação.** Nenhum endpoint pede token, qualquer um consegue criar/atualizar/deletar clínicas. JWT entraria numa sprint futura.
 - **Sem cache.** A API Java cacheia lookups estáveis (estados, cidades) com `@Cacheable`. A .NET ainda não — toda chamada bate no banco. Vale adicionar depois com `IMemoryCache`.
 - **ClinicalEvent e Reminder não implementados.** As tabelas existem no `fix.sql` mas a API ainda não expõe nada delas. Ficou pra Sprint 2.
-- **Sem testes automatizados.** Só validamos manualmente via Swagger.
 - **`Repository<T>.Update` recebe entidade detached.** Funciona, mas não é o padrão mais idiomático do EF (que prefere entidades tracked sendo modificadas direto). Pra Sprint 1 tá bom.
 
 ## Próximos passos
@@ -218,5 +237,4 @@ A gente é honesto sobre o que não está pronto nessa sprint:
 - Reminder CRUD
 - Autenticação via JWT
 - Cache em rotas de leitura estáveis
-- Testes de integração com TestContainers
 - README documentando ClinicalEvent e Reminder quando entrarem

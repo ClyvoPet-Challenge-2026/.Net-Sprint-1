@@ -4,7 +4,8 @@ using ClyvoCare.Application.DTOs;
 
 namespace ClyvoCare.IntegrationTests;
 
-public class ClinicEndpointsTests : IClassFixture<CustomWebApplicationFactory>
+[Collection(IntegrationTestCollection.Name)]
+public class ClinicEndpointsTests
 {
     private readonly HttpClient _client;
 
