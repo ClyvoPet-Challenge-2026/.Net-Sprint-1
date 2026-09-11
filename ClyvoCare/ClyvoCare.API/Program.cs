@@ -4,6 +4,8 @@ using ClyvoCare.API.Extensions;
 using ClyvoCare.API.Health;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
 
 namespace ClyvoCare.API;
 
@@ -25,6 +27,23 @@ public class Program
 
         builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
         builder.Services.AddProblemDetails();
+
+        builder.Services.AddOpenTelemetry()
+            .ConfigureResource(r => r.AddService("ClyvoCare.API"))
+            .WithMetrics(metrics =>
+            {
+                metrics
+                    .AddAspNetCoreInstrumentation()
+                    .AddHttpClientInstrumentation()
+                    .AddRuntimeInstrumentation()
+                    .AddMeter(
+                        "Microsoft.AspNetCore.Hosting",
+                        "Microsoft.AspNetCore.Routing",
+                        "Microsoft.AspNetCore.Server.Kestrel",
+                        "System.Net.Http",
+                        "System.Runtime")
+                    .AddPrometheusExporter();
+            });
 
         var oracleConnectionString = builder.Configuration.GetConnectionString("ClyvoCareOracle")
             ?? throw new InvalidOperationException("Connection string 'ClyvoCareOracle' não encontrada.");
@@ -58,6 +77,8 @@ public class Program
         var app = builder.Build();
 
         app.UseExceptionHandler();
+
+        app.UseOpenTelemetryPrometheusScrapingEndpoint();
 
         if (app.Environment.IsDevelopment())
         {
