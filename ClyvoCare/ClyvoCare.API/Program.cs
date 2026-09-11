@@ -1,6 +1,8 @@
 using System.Reflection;
 using ClyvoCare.API.Exceptions;
 using ClyvoCare.API.Extensions;
+using ClyvoCare.API.Health;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 
 namespace ClyvoCare.API;
@@ -23,6 +25,14 @@ public class Program
 
         builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
         builder.Services.AddProblemDetails();
+
+        var oracleConnectionString = builder.Configuration.GetConnectionString("ClyvoCareOracle")
+            ?? throw new InvalidOperationException("Connection string 'ClyvoCareOracle' não encontrada.");
+
+        builder.Services.AddHealthChecks()
+            .AddOracle(oracleConnectionString, name: "Oracle FIAP")
+            .AddUrlGroup(new Uri("https://fiap.com.br"), "FIAP")
+            .AddUrlGroup(new Uri("https://google.com.br"), "Google");
 
         builder.Services.AddSwaggerGen(options =>
         {
@@ -62,6 +72,11 @@ public class Program
         app.UseHttpsRedirection();
         app.UseAuthorization();
         app.MapControllers();
+
+        app.MapHealthChecks("/health", new HealthCheckOptions
+        {
+            ResponseWriter = HealthCheckResponseWriter.WriteJsonResponse
+        });
 
         app.Run();
     }
