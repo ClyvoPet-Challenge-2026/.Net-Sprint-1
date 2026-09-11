@@ -32,6 +32,7 @@ As outras entidades que a .NET vai escrever (ClinicalEvent e Reminder) ficaram p
 | Banco | Oracle 19c (FIAP) |
 | Provider Oracle | Oracle.EntityFrameworkCore 9.23.80 |
 | Documentação | Swashbuckle (Swagger UI) |
+| Observabilidade | AspNetCore.HealthChecks (Oracle + URLs) + OpenTelemetry (métricas) + Prometheus |
 | Build | .NET SDK 9 |
 | Versionamento | Git + git-flow |
 
@@ -108,10 +109,11 @@ Base path: `/api/`
 | PUT | `/api/clinicas/{id}` | Atualiza clínica | 204, 400, 404 |
 | DELETE | `/api/clinicas/{id}` | Remove clínica | 204, 404 |
 
-### Health
+### Observabilidade
 | Método | Rota | Descrição | Status |
 |---|---|---|---|
-| GET | `/api/healthcheck` | Verifica se a API está no ar | 200 |
+| GET | `/health` | Verifica Oracle FIAP + serviços externos | 200, 503 |
+| GET | `/metrics` | Métricas no formato Prometheus | 200 |
 
 Documentação interativa completa fica no Swagger em `http://localhost:5067/`.
 
@@ -146,6 +148,34 @@ Resposta `201 Created` traz a clínica criada com a cidade e o estado aninhados:
 ```
 
 Se o `cityId` não existir, volta `404` com mensagem amigável. Se o CNPJ já estiver cadastrado, volta `400`.
+
+## Observabilidade
+
+### Health Checks
+
+`GET /health` verifica a conexão com o Oracle FIAP e dois serviços externos (fiap.com.br, google.com.br). Resposta:
+
+```json
+{
+  "status": "Healthy",
+  "duration": "00:00:00.1234567",
+  "checks": [
+    { "name": "Oracle FIAP", "status": "Healthy", "description": null, "duration": "00:00:00.10", "error": null },
+    { "name": "FIAP", "status": "Healthy", "description": null, "duration": "00:00:00.02", "error": null },
+    { "name": "Google", "status": "Healthy", "description": null, "duration": "00:00:00.01", "error": null }
+  ]
+}
+```
+
+Se qualquer check falhar, o endpoint responde `503` e o item correspondente traz o erro em `checks[].error` (ex.: `Oracle FIAP` fica `Unhealthy` com `ORA-01017` se as credenciais do `appsettings.json` forem inválidas ou a VPN da FIAP não estiver conectada). Esse endpoint substitui o antigo `GET /api/healthcheck`, que só confirmava que o processo estava de pé, sem checar nenhuma dependência real.
+
+### Métricas (OpenTelemetry + Prometheus)
+
+`GET /metrics` expõe métricas no formato Prometheus, com instrumentação de ASP.NET Core, HttpClient e runtime do .NET — inclui `http_server_request_duration_seconds`, que dá tempo de resposta e taxa de erro por rota e status code.
+
+### Logs
+
+Toda exceção não tratada passa pelo `GlobalExceptionHandler`, que loga com um `TraceId` (via `Activity.Current`) junto da mensagem — dá pra correlacionar uma linha de log com a resposta que o cliente recebeu.
 
 ## Decisões importantes do projeto
 
