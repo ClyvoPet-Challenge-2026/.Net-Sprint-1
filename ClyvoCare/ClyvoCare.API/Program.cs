@@ -28,6 +28,20 @@ public partial class Program
         builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
         builder.Services.AddProblemDetails();
 
+        var corsAllowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? [];
+
+        builder.Services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(policy =>
+            {
+                policy
+                    .WithOrigins(corsAllowedOrigins)
+                    .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+                    .WithHeaders("Authorization", "Content-Type");
+            });
+        });
+
         builder.Services.AddOpenTelemetry()
             .ConfigureResource(r => r.AddService("ClyvoCare.API"))
             .WithMetrics(metrics =>
@@ -91,6 +105,7 @@ public partial class Program
         }
 
         app.UseHttpsRedirection();
+        app.UseCors();
         app.UseAuthorization();
         app.MapControllers();
 
