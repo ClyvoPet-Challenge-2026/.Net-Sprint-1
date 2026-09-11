@@ -13,7 +13,9 @@ public sealed class GlobalExceptionHandler(
         Exception exception,
         CancellationToken cancellationToken)
     {
-        logger.LogError(exception, "Exceção não tratada: {Message}", exception.Message);
+        var traceId = System.Diagnostics.Activity.Current?.Id ?? httpContext.TraceIdentifier;
+
+        logger.LogError(exception, "Exceção não tratada: {Message} : TraceId {TraceId}", exception.Message, traceId);
 
         var (statusCode, title, detail) = MapException(exception, environment);
 
