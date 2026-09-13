@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
+using Serilog;
 
 namespace ClyvoCare.API;
 
@@ -14,6 +15,12 @@ public partial class Program
     public static void Main(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
+
+        builder.Host.UseSerilog((context, configuration) => configuration
+            .ReadFrom.Configuration(context.Configuration)
+            .Enrich.FromLogContext()
+            .WriteTo.Console()
+            .WriteTo.File("logs/clyvocare-.log", rollingInterval: RollingInterval.Day));
 
         builder.Services.AddClyvoCareDbContext(builder.Configuration);
 
@@ -89,6 +96,8 @@ public partial class Program
         });
 
         var app = builder.Build();
+
+        app.UseSerilogRequestLogging();
 
         app.UseExceptionHandler();
 
