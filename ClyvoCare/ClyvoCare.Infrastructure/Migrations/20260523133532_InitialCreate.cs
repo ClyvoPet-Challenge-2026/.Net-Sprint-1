@@ -5,7 +5,7 @@
 namespace ClyvoCare.Infrastructure.Migrations
 {
     /// <summary>
-    /// Migration de baseline. O schema já existe no Oracle FIAP fix.sql,
+    /// Migration de baseline. O schema deve ser preparado antes (docs/script.sql),
     /// então Up()/Down() ficam vazios e esta migration serve apenas como ponto
     /// de partida para as próximas.
     /// </summary>

@@ -1,15 +1,26 @@
 using System.Reflection;
 using ClyvoCare.API.Exceptions;
 using ClyvoCare.API.Extensions;
+using ClyvoCare.API.Health;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using Serilog;
 
 namespace ClyvoCare.API;
 
-public class Program
+public partial class Program
 {
     public static void Main(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
+
+        builder.Host.UseSerilog((context, configuration) => configuration
+            .ReadFrom.Configuration(context.Configuration)
+            .Enrich.FromLogContext()
+            .WriteTo.Console()
+            .WriteTo.File("logs/clyvocare-.log", rollingInterval: RollingInterval.Day));
 
         builder.Services.AddClyvoCareDbContext(builder.Configuration);
 
@@ -23,6 +34,45 @@ public class Program
 
         builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
         builder.Services.AddProblemDetails();
+
+        var corsAllowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? [];
+
+        builder.Services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(policy =>
+            {
+                policy
+                    .WithOrigins(corsAllowedOrigins)
+                    .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+                    .WithHeaders("Authorization", "Content-Type");
+            });
+        });
+
+        builder.Services.AddOpenTelemetry()
+            .ConfigureResource(r => r.AddService("ClyvoCare.API"))
+            .WithMetrics(metrics =>
+            {
+                metrics
+                    .AddAspNetCoreInstrumentation()
+                    .AddHttpClientInstrumentation()
+                    .AddRuntimeInstrumentation()
+                    .AddMeter(
+                        "Microsoft.AspNetCore.Hosting",
+                        "Microsoft.AspNetCore.Routing",
+                        "Microsoft.AspNetCore.Server.Kestrel",
+                        "System.Net.Http",
+                        "System.Runtime")
+                    .AddPrometheusExporter();
+            });
+
+        var oracleConnectionString = builder.Configuration.GetConnectionString("ClyvoCareOracle")
+            ?? throw new InvalidOperationException("Connection string 'ClyvoCareOracle' não encontrada.");
+
+        builder.Services.AddHealthChecks()
+            .AddOracle(oracleConnectionString, name: "Oracle FIAP")
+            .AddUrlGroup(new Uri("https://fiap.com.br"), "FIAP")
+            .AddUrlGroup(new Uri("https://google.com.br"), "Google");
 
         builder.Services.AddSwaggerGen(options =>
         {
@@ -47,7 +97,11 @@ public class Program
 
         var app = builder.Build();
 
+        app.UseSerilogRequestLogging();
+
         app.UseExceptionHandler();
+
+        app.UseOpenTelemetryPrometheusScrapingEndpoint();
 
         if (app.Environment.IsDevelopment())
         {
@@ -60,8 +114,14 @@ public class Program
         }
 
         app.UseHttpsRedirection();
+        app.UseCors();
         app.UseAuthorization();
         app.MapControllers();
+
+        app.MapHealthChecks("/health", new HealthCheckOptions
+        {
+            ResponseWriter = HealthCheckResponseWriter.WriteJsonResponse
+        });
 
         app.Run();
     }
