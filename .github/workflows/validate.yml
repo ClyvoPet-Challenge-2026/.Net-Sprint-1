@@ -1,0 +1,33 @@
+name: Validate .NET
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main, teste/sprint-4]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Restore, build and test
+        run: bash scripts/validate.sh
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-test-results
+          path: artifacts/**/*.trx
+          if-no-files-found: warn
+          retention-days: 7

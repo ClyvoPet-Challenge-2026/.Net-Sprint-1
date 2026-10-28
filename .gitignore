@@ -47,3 +47,10 @@ PublishProfiles/
 
 # Build logs
 *.binlog
+
+# Chave publica RSA externa usada para validar o JWT da Java
+.keys/
+
+# Relatórios locais de validação
+artifacts/
+TestResults/
