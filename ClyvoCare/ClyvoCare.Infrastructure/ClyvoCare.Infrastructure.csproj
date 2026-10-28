@@ -12,6 +12,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <PackageReference Include="MongoDB.Driver" Version="3.12.0" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
         <PackageReference Include="Oracle.EntityFrameworkCore" Version="9.23.80" />
     </ItemGroup>

@@ -1,3 +1,4 @@
+using ClyvoCare.Infrastructure.Diagnostics;
 using ClyvoCare.Application.Repositories;
 using ClyvoCare.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +13,7 @@ public sealed class CityRepository(ClyvoCareContext context)
 {
     public IReadOnlyList<City> GetAllWithState()
     {
+        using var activity = PersistenceDiagnostics.Source.StartActivity("CityRepository.GetAllWithState");
         return Context.Set<City>()
             .Include(c => c.State)
             .AsNoTracking()
@@ -21,6 +23,7 @@ public sealed class CityRepository(ClyvoCareContext context)
 
     public City? GetByIdWithState(long id)
     {
+        using var activity = PersistenceDiagnostics.Source.StartActivity("CityRepository.GetByIdWithState");
         return Context.Set<City>()
             .Include(c => c.State)
             .AsNoTracking()

@@ -1,3 +1,4 @@
+using ClyvoCare.Infrastructure.Diagnostics;
 using ClyvoCare.Application.Repositories;
 using ClyvoCare.Domain.Common;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +13,7 @@ public class Repository<T>(ClyvoCareContext context) : IRepository<T> where T : 
 
     public IReadOnlyList<T> GetAll()
     {
+        using var activity = PersistenceDiagnostics.Source.StartActivity($"Repository<{typeof(T).Name}>.GetAll");
         return _set
             .OrderBy(e => e.Id)
             .ToList();
@@ -19,11 +21,13 @@ public class Repository<T>(ClyvoCareContext context) : IRepository<T> where T : 
 
     public T? GetById(long id)
     {
+        using var activity = PersistenceDiagnostics.Source.StartActivity($"Repository<{typeof(T).Name}>.GetById");
         return _set.Find(id);
     }
 
     public T Add(T entity)
     {
+        using var activity = PersistenceDiagnostics.Source.StartActivity($"Repository<{typeof(T).Name}>.Add");
         ArgumentNullException.ThrowIfNull(entity);
 
         _set.Add(entity);
@@ -34,6 +38,7 @@ public class Repository<T>(ClyvoCareContext context) : IRepository<T> where T : 
 
     public T Update(T entity)
     {
+        using var activity = PersistenceDiagnostics.Source.StartActivity($"Repository<{typeof(T).Name}>.Update");
         ArgumentNullException.ThrowIfNull(entity);
 
         _set.Update(entity);
@@ -44,6 +49,7 @@ public class Repository<T>(ClyvoCareContext context) : IRepository<T> where T : 
 
     public bool Delete(long id)
     {
+        using var activity = PersistenceDiagnostics.Source.StartActivity($"Repository<{typeof(T).Name}>.Delete");
         var entity = GetById(id);
         if (entity is null)
             return false;
@@ -56,6 +62,7 @@ public class Repository<T>(ClyvoCareContext context) : IRepository<T> where T : 
 
     public bool ExistsById(long id)
     {
+        using var activity = PersistenceDiagnostics.Source.StartActivity($"Repository<{typeof(T).Name}>.ExistsById");
         return _set.Count(e => e.Id == id) > 0;
     }
 }

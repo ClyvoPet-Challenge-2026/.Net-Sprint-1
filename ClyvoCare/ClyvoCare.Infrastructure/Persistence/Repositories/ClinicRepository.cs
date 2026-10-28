@@ -1,3 +1,5 @@
+using ClyvoCare.Application.DTOs;
+using ClyvoCare.Infrastructure.Diagnostics;
 using ClyvoCare.Application.Repositories;
 using ClyvoCare.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +14,7 @@ public sealed class ClinicRepository(ClyvoCareContext context)
 {
     public IReadOnlyList<Clinic> GetAllWithCity()
     {
+        using var activity = PersistenceDiagnostics.Source.StartActivity("ClinicRepository.GetAllWithCity");
         return Context.Set<Clinic>()
             .Include(c => c.City)
             .ThenInclude(city => city.State)
@@ -20,8 +23,39 @@ public sealed class ClinicRepository(ClyvoCareContext context)
             .ToList();
     }
 
+    public (IReadOnlyList<Clinic> Items, int TotalCount) SearchPage(ClinicSearchRequest request)
+    {
+        using var activity = PersistenceDiagnostics.Source.StartActivity("ClinicRepository.SearchPage");
+        var search = request.Normalize();
+        var query = Context.Set<Clinic>().AsNoTracking().AsQueryable();
+        if (search.Nome is not null)
+        {
+            var name = search.Nome.ToLowerInvariant();
+            query = query.Where(c => c.Name.ToLower().Contains(name));
+        }
+        if (search.Cnpj is not null)
+            query = query.Where(c => c.Cnpj == search.Cnpj);
+        if (search.CityId.HasValue)
+            query = query.Where(c => c.CityId == search.CityId.Value);
+
+        var total = query.Count();
+        var descending = search.SortDirection == "desc";
+        IOrderedQueryable<Clinic> ordered = search.SortBy switch
+        {
+            "name" => descending ? query.OrderByDescending(c => c.Name) : query.OrderBy(c => c.Name),
+            "cnpj" => descending ? query.OrderByDescending(c => c.Cnpj) : query.OrderBy(c => c.Cnpj),
+            "cityid" => descending ? query.OrderByDescending(c => c.CityId) : query.OrderBy(c => c.CityId),
+            _ => descending ? query.OrderByDescending(c => c.Id) : query.OrderBy(c => c.Id)
+        };
+        var items = ordered.ThenBy(c => c.Id)
+            .Skip((search.PageNumber - 1) * search.PageSize).Take(search.PageSize)
+            .Include(c => c.City).ThenInclude(c => c.State).ToList();
+        return (items, total);
+    }
+
     public Clinic? GetByIdWithCity(long id)
     {
+        using var activity = PersistenceDiagnostics.Source.StartActivity("ClinicRepository.GetByIdWithCity");
         return Context.Set<Clinic>()
             .Include(c => c.City)
             .ThenInclude(city => city.State)
@@ -31,6 +65,7 @@ public sealed class ClinicRepository(ClyvoCareContext context)
 
     public IReadOnlyList<Clinic> GetByCityIdWithCity(long cityId)
     {
+        using var activity = PersistenceDiagnostics.Source.StartActivity("ClinicRepository.GetByCityIdWithCity");
         return Context.Set<Clinic>()
             .Include(c => c.City)
             .ThenInclude(city => city.State)
@@ -42,6 +77,7 @@ public sealed class ClinicRepository(ClyvoCareContext context)
 
     public IReadOnlyList<Clinic> SearchWithCity(string? name, string? cnpj)
     {
+        using var activity = PersistenceDiagnostics.Source.StartActivity("ClinicRepository.SearchWithCity");
         var query = Context.Set<Clinic>()
             .Include(c => c.City)
             .ThenInclude(city => city.State)
@@ -65,6 +101,7 @@ public sealed class ClinicRepository(ClyvoCareContext context)
 
     public bool ExistsByCnpj(string cnpj, long? excludeId = null)
     {
+        using var activity = PersistenceDiagnostics.Source.StartActivity("ClinicRepository.ExistsByCnpj");
         ArgumentException.ThrowIfNullOrWhiteSpace(cnpj);
 
         var cnpjTrimmed = cnpj.Trim();
