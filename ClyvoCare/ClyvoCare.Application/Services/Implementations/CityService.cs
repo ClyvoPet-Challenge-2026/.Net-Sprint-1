@@ -1,3 +1,4 @@
+using ClyvoCare.Application.Diagnostics;
 using ClyvoCare.Application.DTOs;
 using ClyvoCare.Application.Repositories;
 using ClyvoCare.Application.Services.Interfaces;
@@ -13,6 +14,7 @@ public sealed class CityService(ICityRepository cityRepository) : ICityService
     /// <inheritdoc />
     public IReadOnlyList<CityResponse> GetAll()
     {
+        using var activity = ApplicationDiagnostics.Source.StartActivity("CityService.GetAll");
         return cityRepository
             .GetAllWithState()
             .Select(CityResponse.FromDomain)
@@ -22,6 +24,7 @@ public sealed class CityService(ICityRepository cityRepository) : ICityService
     /// <inheritdoc />
     public CityResponse? GetById(long id)
     {
+        using var activity = ApplicationDiagnostics.Source.StartActivity("CityService.GetById");
         var city = cityRepository.GetByIdWithState(id);
         return city is null ? null : CityResponse.FromDomain(city);
     }

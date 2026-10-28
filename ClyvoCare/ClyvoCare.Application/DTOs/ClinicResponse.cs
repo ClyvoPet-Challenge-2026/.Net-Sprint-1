@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using ClyvoCare.Domain.Entities;
 
 namespace ClyvoCare.Application.DTOs;
@@ -7,6 +8,10 @@ namespace ClyvoCare.Application.DTOs;
 /// </summary>
 public record ClinicResponse(long Id, string Name, string Cnpj, string? Phone, CityResponse City)
 {
+    [JsonPropertyName("_links")]
+    public IReadOnlyDictionary<string, LinkResponse> Links { get; init; }
+        = new Dictionary<string, LinkResponse>();
+
     /// <summary>
     /// Mapeia <see cref="Clinic"/> para DTO.
     /// </summary>

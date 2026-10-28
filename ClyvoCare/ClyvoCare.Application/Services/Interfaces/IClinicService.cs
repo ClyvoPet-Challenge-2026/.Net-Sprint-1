@@ -9,6 +9,8 @@ public interface IClinicService
 {
     IReadOnlyList<ClinicResponse> GetAll();
 
+    PagedResult<ClinicResponse> SearchPage(ClinicSearchRequest request);
+
     ClinicResponse? GetById(long id);
 
     IReadOnlyList<ClinicResponse> GetByCityId(long cityId);

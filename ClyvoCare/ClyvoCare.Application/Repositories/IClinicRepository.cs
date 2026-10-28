@@ -1,3 +1,4 @@
+using ClyvoCare.Application.DTOs;
 using ClyvoCare.Domain.Entities;
 
 namespace ClyvoCare.Application.Repositories;
@@ -8,6 +9,8 @@ namespace ClyvoCare.Application.Repositories;
 public interface IClinicRepository : IRepository<Clinic>
 {
     IReadOnlyList<Clinic> GetAllWithCity();
+
+    (IReadOnlyList<Clinic> Items, int TotalCount) SearchPage(ClinicSearchRequest request);
 
     Clinic? GetByIdWithCity(long id);
 

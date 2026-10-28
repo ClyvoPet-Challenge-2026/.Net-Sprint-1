@@ -1,3 +1,4 @@
+using ClyvoCare.Application.Services.Interfaces;
 using ClyvoCare.Application.DTOs;
 using ClyvoCare.Application.Repositories;
 using ClyvoCare.Application.Services.Implementations;
@@ -10,11 +11,14 @@ public class ClinicServiceTests
 {
     private readonly Mock<IClinicRepository> _clinics = new();
     private readonly Mock<IRepository<City>> _cities = new();
+    private readonly Mock<IClinicAuditRepository> _audit = new();
+    private readonly Mock<ICurrentUser> _user = new();
     private readonly ClinicService _service;
 
     public ClinicServiceTests()
     {
-        _service = new ClinicService(_clinics.Object, _cities.Object);
+        _user.SetupGet(user => user.OwnerId).Returns(100);
+        _service = new ClinicService(_clinics.Object, _cities.Object, _audit.Object, _user.Object, TimeProvider.System);
     }
 
     private static ClinicRequest ValidRequest() =>
@@ -74,6 +78,7 @@ public class ClinicServiceTests
         var ex = Assert.Throws<KeyNotFoundException>(act);
         Assert.Equal("Cidade com ID 1 não encontrada.", ex.Message);
         _clinics.Verify(r => r.Add(It.IsAny<Clinic>()), Times.Never);
+        _audit.Verify(r => r.TryAdd(It.IsAny<ClinicAuditEntry>()), Times.Never);
     }
 
     [Fact]
@@ -91,6 +96,7 @@ public class ClinicServiceTests
         var ex = Assert.Throws<InvalidOperationException>(act);
         Assert.Equal("Já existe uma clínica cadastrada com o CNPJ 99.999.999/0001-99.", ex.Message);
         _clinics.Verify(r => r.Add(It.IsAny<Clinic>()), Times.Never);
+        _audit.Verify(r => r.TryAdd(It.IsAny<ClinicAuditEntry>()), Times.Never);
     }
 
     [Fact]
@@ -115,6 +121,9 @@ public class ClinicServiceTests
         Assert.Equal(request.Name, result.Name);
         Assert.Equal("Sao Paulo", result.City.Name);
         _clinics.Verify(r => r.Add(It.IsAny<Clinic>()), Times.Once);
+        _audit.Verify(r => r.TryAdd(It.Is<ClinicAuditEntry>(e => e.ClinicId == 10
+            && e.ActorId == 100 && e.Operation == "Created"
+            && e.OccurredAtUtc.Kind == DateTimeKind.Utc)), Times.Once);
     }
 
     [Fact]
@@ -130,6 +139,7 @@ public class ClinicServiceTests
         var ex = Assert.Throws<KeyNotFoundException>(act);
         Assert.Equal("Clínica com ID 99 não encontrada.", ex.Message);
         _clinics.Verify(r => r.Update(It.IsAny<Clinic>()), Times.Never);
+        _audit.Verify(r => r.TryAdd(It.IsAny<ClinicAuditEntry>()), Times.Never);
     }
 
     [Fact]
@@ -150,6 +160,7 @@ public class ClinicServiceTests
         //Assert
         Assert.Throws<KeyNotFoundException>(act);
         _clinics.Verify(r => r.Update(It.IsAny<Clinic>()), Times.Never);
+        _audit.Verify(r => r.TryAdd(It.IsAny<ClinicAuditEntry>()), Times.Never);
     }
 
     [Fact]
@@ -171,6 +182,7 @@ public class ClinicServiceTests
         //Assert
         Assert.Throws<InvalidOperationException>(act);
         _clinics.Verify(r => r.Update(It.IsAny<Clinic>()), Times.Never);
+        _audit.Verify(r => r.TryAdd(It.IsAny<ClinicAuditEntry>()), Times.Never);
     }
 
     [Fact]
@@ -216,6 +228,8 @@ public class ClinicServiceTests
 
         //Assert
         Assert.True(result);
+        _audit.Verify(r => r.TryAdd(It.Is<ClinicAuditEntry>(e => e.ClinicId == 10
+            && e.Operation == "Deleted" && e.ActorId == 100)), Times.Once);
     }
 
     [Fact]
@@ -229,5 +243,48 @@ public class ClinicServiceTests
 
         //Assert
         Assert.False(result);
+        _audit.Verify(r => r.TryAdd(It.IsAny<ClinicAuditEntry>()), Times.Never);
+    }
+
+    [Fact]
+    public void Update_ComSucesso_DeveAuditarDepoisDePersistir()
+    {
+        var state = TestEntityFactory.CreateState(1, "Sao Paulo", "SP");
+        var city = TestEntityFactory.CreateCity(1, "Sao Paulo", state);
+        var clinic = BuildClinicWithCity(10, city);
+        var persisted = false;
+        _cities.Setup(r => r.ExistsById(1)).Returns(true);
+        _clinics.Setup(r => r.GetById(10)).Returns(clinic);
+        _clinics.Setup(r => r.Update(clinic)).Callback(() => persisted = true).Returns(clinic);
+        _clinics.Setup(r => r.GetByIdWithCity(10)).Returns(clinic);
+        _audit.Setup(r => r.TryAdd(It.IsAny<ClinicAuditEntry>()))
+            .Callback<ClinicAuditEntry>(entry => Assert.True(persisted)).Returns(true);
+
+        _service.Update(10, ValidRequest());
+
+        _audit.Verify(r => r.TryAdd(It.Is<ClinicAuditEntry>(e => e.ClinicId == 10
+            && e.Operation == "Updated" && e.ActorId == 100)), Times.Once);
+    }
+
+    [Fact]
+    public void Delete_QuandoPersistenciaFalha_NaoDeveAuditar()
+    {
+        _clinics.Setup(r => r.Delete(10)).Throws(new InvalidOperationException("Banco indisponível"));
+
+        Assert.Throws<InvalidOperationException>(() => _service.Delete(10));
+
+        _audit.Verify(r => r.TryAdd(It.IsAny<ClinicAuditEntry>()), Times.Never);
+    }
+
+    [Fact]
+    public void Delete_QuandoAuditoriaFalha_DevePreservarResultadoDaPersistencia()
+    {
+        _clinics.Setup(r => r.Delete(10)).Returns(true);
+        _audit.Setup(r => r.TryAdd(It.IsAny<ClinicAuditEntry>())).Returns(false);
+
+        var result = _service.Delete(10);
+
+        Assert.True(result);
+        _audit.Verify(r => r.TryAdd(It.IsAny<ClinicAuditEntry>()), Times.Once);
     }
 }
