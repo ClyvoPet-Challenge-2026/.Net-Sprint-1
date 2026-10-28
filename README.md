@@ -8,6 +8,8 @@ A proposta é manter o cadastro da rede veterinária ligado às cidades já usad
 
 ## Como os projetos se complementam
 
+Conforme alinhamento com o time de backend, a API Java mantém clientes/tutores, pets e planos; a API .NET é responsável pelo contexto clínico, incluindo cadastro e consulta de agendamentos. A branch `teste/sprint-4` contém a implementação inicial de criação e consulta de agendamentos, com JWT da Java; a validação completa em .NET 9/Oracle ainda está pendente. Consulte o [contrato de agendamentos](docs/agendamentos.md).
+
 O ClyvoCare está dividido em repositórios que atendem a partes diferentes da solução e das entregas do Challenge:
 
 | Projeto | Papel |
@@ -24,7 +26,8 @@ A divisão de responsabilidades no banco é:
 | Estados e cidades — `TB_CAD_STATE`, `TB_CAD_CITY` | Cadastro e manutenção | Consulta |
 | Tutores, pets, espécies, raças, planos e contratações | Cadastro e manutenção | Sem endpoints implementados |
 | Clínicas — `TB_CAD_CLINIC` | A estrutura faz parte do schema compartilhado | CRUD e buscas |
-| Eventos clínicos e lembretes | A estrutura faz parte do schema compartilhado | Escopo previsto, ainda sem entidades e endpoints implementados |
+| Agendamentos — `TB_HEA_CLINICAL_EVENT` | Estrutura inicial no schema compartilhado | Criação e consulta implementadas; validação completa pendente |
+| Lembretes | Estrutura inicial no schema compartilhado | Ainda sem endpoints |
 
 Para compartilhar os dados, configure as duas APIs para usar **o mesmo banco e o mesmo schema Oracle**. A .NET consulta as tabelas pelo Entity Framework Core; não faz chamadas HTTP à API Java para buscar cidades. Depois que o schema estiver preparado, Java não precisa estar em execução para a .NET consultar esses registros.
 
@@ -41,6 +44,7 @@ Para rodar a API na sua máquina, você precisa de:
 - **.NET SDK 9**, conforme [global.json](ClyvoCare/global.json).
 - **Acesso a um banco Oracle**, com usuário e senha. Você pode usar o Oracle da FIAP com as credenciais da sua conta.
 - Um schema com as tabelas da aplicação, conforme [Banco de dados compartilhado](#banco-de-dados-compartilhado).
+- **MongoDB**, para auditoria das alterações de clínicas; consulte [configuração e limites](docs/mongodb.md).
 - **Git**, para clonar o repositório.
 
 ### Configurando a conexão
@@ -72,7 +76,7 @@ dotnet run --project ClyvoCare.API --launch-profile http
 
 A variável de ambiente substitui `ConnectionStrings:ClyvoCareOracle` do [appsettings.json](ClyvoCare/ClyvoCare.API/appsettings.json). Se você inicia pela IDE, configure essa mesma variável na execução. Para usar outro Oracle, ajuste o host, a porta e o serviço em `Data Source`.
 
-As credenciais conectam a aplicação ao banco. **A API .NET atual não exige login ou token nos endpoints.** A autenticação JWT e os perfis `ADMIN` e `OWNER` documentados em Java pertencem à API Java.
+As credenciais conectam a aplicação ao banco. Os agendamentos exigem JWT da Java com `ownerId`, `sub` e `role`. A escrita de clínicas exige ADMIN; consultas de clínicas, estados e cidades continuam públicas. Configure também `Jwt__PublicKeyPath` com o caminho absoluto da chave **pública** usada pela Java (por exemplo, `export Jwt__PublicKeyPath='/caminho/public_key.pem'` no Bash ou `$env:Jwt__PublicKeyPath = 'C:\segredos\public_key.pem'` no PowerShell). A .NET não recebe a chave privada. Faça essa configuração antes de executar `dotnet run` ou comandos EF que inicializem a API.
 
 ### O que acontece ao iniciar
 
@@ -112,7 +116,7 @@ SELECT ID, STATE_ID, NAME FROM TB_CAD_CITY ORDER BY ID;
 SELECT ID, NAME, CNPJ, CITY_ID, PHONE FROM TB_CAD_CLINIC ORDER BY ID;
 ```
 
-A .NET mapeia essas três tabelas em [ClyvoCareContext](ClyvoCare/ClyvoCare.Infrastructure/Persistence/ClyvoCareContext.cs). As chaves estrangeiras ligam clínica → cidade → estado. O SQL compartilhado usa os mesmos nomes de colunas e tamanhos definidos nas configurações do Entity Framework.
+A .NET mapeia estados, cidades, clínicas e eventos clínicos, além de projeções de leitura de tutores/pets, em [ClyvoCareContext](ClyvoCare/ClyvoCare.Infrastructure/Persistence/ClyvoCareContext.cs). As chaves estrangeiras ligam clínica → cidade → estado. O SQL compartilhado usa os mesmos nomes de colunas e tamanhos definidos nas configurações do Entity Framework.
 
 ### Preparando um banco de demonstração com SQL
 
@@ -128,11 +132,11 @@ No SQL Developer:
 
 O arquivo inclui operações de demonstração e `COMMIT`, além do DDL e da carga inicial. Ele não substitui o versionamento de um banco em uso e não reinicia os históricos do Flyway ou do Entity Framework.
 
-Os objetos de contratação e auditoria ficam disponíveis no banco, mas a API .NET atual não chama essas funções e procedures. Sua persistência usa os repositórios do Entity Framework para estados, cidades e clínicas.
+Os objetos de contratação e auditoria ficam disponíveis no banco, mas a API .NET atual não chama essas funções e procedures. Sua persistência usa os repositórios do Entity Framework para estados, cidades, clínicas e agendamentos; tutores/pets são consultados somente para identidade e autorização.
 
 ### Migrations do Entity Framework e do Flyway
 
-A migration [InitialCreate](ClyvoCare/ClyvoCare.Infrastructure/Migrations/20260523133532_InitialCreate.cs) da .NET tem `Up()` e `Down()` vazios. Ela é um ponto de partida para o histórico do Entity Framework; executar `dotnet ef database update` não cria as tabelas de negócio.
+A migration [InitialCreate](ClyvoCare/ClyvoCare.Infrastructure/Migrations/20260523133532_InitialCreate.cs) da .NET tem `Up()` e `Down()` vazios e exige o baseline previamente preparado. A nova `AddAppointmentDetails` acrescenta motivo, observações e índices à tabela clínica existente. Antes de aplicar, siga as verificações de duplicidade, fuso de dados legados e revisão EF descritas no [contrato de agendamentos](docs/agendamentos.md#banco-e-migration). Ela ainda não foi aplicada no Oracle.
 
 A evolução do schema na execução normal de Java está nas [migrations Flyway](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1/tree/develop/src/main/resources/db/migration). Elas criam a estrutura, convertem status e pagamentos para texto e carregam os dados de demonstração. As orientações para schemas existentes estão no [README de Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1#banco-de-dados-e-migrations).
 
@@ -145,6 +149,8 @@ Para a .NET acessar os registros desse ambiente, configure `Data Source=HOST_DO_
 O deploy ACI atual desabilita Flyway e usa Hibernate para criar ou atualizar tabelas. Consulte as diferenças e os comandos de provisionamento no [README de Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1#deploy-no-azure-acr--aci).
 
 ## Endpoints
+
+Os novos `POST /api/agendamentos`, `GET /api/agendamentos` e `GET /api/agendamentos/{id}` estão detalhados no [contrato de agendamentos](docs/agendamentos.md), incluindo campos, UTC, paginação e permissões.
 
 As rotas de negócio começam com `/api`. As listagens retornam arrays, sem paginação.
 
@@ -335,6 +341,33 @@ As versões estão nos arquivos `.csproj` de cada projeto. O [global.json](Clyvo
 
 A solução separa domínio, aplicação, persistência e HTTP em quatro projetos:
 
+O fluxo abaixo representa a implementação preparada na branch. Execução integrada,
+Oracle, MongoDB e coletor OTLP ainda precisam de validação com .NET 9. A ligação dos
+agendamentos ao Mobile permanece pendente.
+
+```mermaid
+flowchart LR
+    Mobile[Mobile] --> Java[API Java: identidade, pets e planos]
+    Mobile -. Integração clínica pendente .-> API[API .NET: controllers e JWT]
+    Java --> Oracle[(Oracle compartilhado)]
+    Java -. Chave pública RSA .-> API
+    API --> App[Application: serviços e contratos]
+    App --> Domain[Domain: entidades e regras]
+    App --> Contracts[Interfaces de repositório]
+    Infra[Infrastructure: implementações] -. Implementa .-> Contracts
+    Infra --> Oracle
+    Infra --> Mongo[(MongoDB: ClinicAuditLogs)]
+    API --> Telemetry[OpenTelemetry e Serilog]
+    App --> Telemetry
+    Infra --> Telemetry
+    Telemetry --> OTLP[Coletor OTLP]
+    Telemetry --> Metrics[Prometheus: /metrics]
+```
+
+A API compõe a injeção de dependência. Aplicação depende de contratos e domínio;
+infraestrutura implementa os contratos. A integração com MongoDB fica na infraestrutura,
+e links HTTP são montados no controller.
+
 ```text
 ClyvoCare/
 ├── ClyvoCare.Domain/          entidades e exceções de domínio
@@ -374,6 +407,60 @@ Outros arquivos úteis:
 | Organização e documentação | Projetos por camada e instruções de execução neste README |
 | Integração com Java | Schema Oracle compartilhado e SQL em `docs/script.sql` |
 
-Tracing distribuído e um middleware próprio de Correlation ID ainda precisam ser implementados para completar esses pontos de observabilidade. Os testes de autenticação também dependem de adicionar autenticação à API .NET.
+Tracing distribuído foi preparado com instrumentação HTTP, spans de serviços/repositórios e exportação OTLP optativa. Consulte [configuração e roteiro de validação](docs/tracing.md). A execução integrada do tracing e dos testes JWT depende do ambiente .NET 9 com as dependências restauradas.
 
-Eventos clínicos, lembretes, cache e autenticação continuam como evolução prevista. O CRUD implementado nesta versão é o de clínicas; as demais tabelas presentes no SQL não representam endpoints já disponíveis.
+Lembretes, cache e demais requisitos pendentes continuam como evolução prevista. Esta branch adiciona criação/consulta de agendamentos e autenticação JWT, além do CRUD de clínicas existente. A presença de outras tabelas no SQL não representa endpoints implementados.
+
+
+## Validação desta etapa — agendamentos
+
+O projeto continua em `net9.0`. O ambiente de trabalho só disponibiliza SDK 8 e não conseguiu baixar SDK/dependências; `dotnet build` da solução ficou bloqueado antes da compilação. Foi possível compilar isoladamente domínio/aplicação, controller de agendamentos, leitura de claims e conversor de data com SDK 8, além de executar 29 verificações de regras sem EF/JWT/HTTP. Isso não valida a aplicação completa.
+
+Os testes xUnit de domínio, aplicação e integração foram adicionados, mas devem ser executados com `dotnet test` em .NET 9. As próximas verificações incluem snapshot/migration EF, banco Oracle e fluxo real no Mobile. Nenhuma migration, publicação ou alteração de dados reais foi executada.
+
+## Validação desta etapa — tracing
+
+Instrumentados os serviços e repositórios com `ActivitySource`, preservando o contexto W3C. A API registra as fontes no OpenTelemetry e permite exportação OTLP por `Telemetry__OtlpEnabled=true`. Domínio/aplicação compilaram isoladamente com SDK 8 e duas verificações de propagação/restauração de contexto passaram. Build completo, testes xUnit, instrumentação HTTP/EF e exportação ao coletor permanecem pendentes de validação com .NET 9.
+
+## Auditoria MongoDB
+
+Criação, atualização e exclusão de clínicas agora enviam metadados de auditoria à
+coleção `ClinicAuditLogs`, após a persistência relacional. Configure
+`Mongo__ConnectionString` e `Mongo__DatabaseName` fora de Development; o perfil de
+desenvolvimento usa MongoDB local e banco `clyvocare`. O check `MongoDB Audit` foi
+adicionado a `/health`.
+
+Falhas MongoDB são registradas e não desfazem a alteração da clínica. Não há outbox
+ou replay: a auditoria pode perder eventos durante indisponibilidades. Consulte
+[configuração, limites e validação](docs/mongodb.md).
+
+A implementação está preparada, com oito verificações isoladas de aplicação aprovadas
+em SDK 8. Build/testes da solução .NET 9 e persistência real MongoDB continuam pendentes.
+
+## Paginação e HATEOAS de clínicas
+
+`GET /api/clinicas` sem parâmetros preserva o array existente. Envie `pageNumber=1`
+(ou outro parâmetro de consulta reconhecido) para receber `items`, totais e links
+`self`, `first`, `last`, `prev` e `next`. São aceitos `pageSize` até 100, `sortBy`,
+`sortDirection`, `nome`, `cnpj` e `cityId`. Os filtros são combináveis e a consulta
+é paginada no banco.
+
+Cada clínica inclui `_links`, com leitura pública e links de edição/exclusão para
+ADMIN. As rotas `/buscar` e `/por-cidade` preservam seus arrays e códigos de resposta.
+Veja o [contrato completo e roteiro de validação](docs/clinicas.md).
+
+Quinze verificações isoladas de regras/serviço/JSON passaram com SDK 8. O controller
+compilou isoladamente, mas não foi executado por ausência de runtime ASP.NET Core.
+Testes HTTP/EF/Swagger e Oracle permanecem pendentes em .NET 9.
+
+## Validação automatizada
+
+Com SDK/runtime .NET 9 e acesso ao NuGet, execute `bash scripts/validate.sh` na raiz
+deste repositório. O script restaura, compila em Release e executa todas as suítes,
+salvando relatórios em `artifacts/`. O workflow `.github/workflows/validate.yml` usa
+o mesmo script; foi preparado localmente e ainda não foi executado no GitHub.
+
+A suíte HTTP isola todos os health checks externos, usa SQLite e chaves temporárias.
+Testes adicionais com o provedor Oracle verificam snapshot e SQL sem conexão.
+A validação real dos bancos e do coletor continua separada. Consulte o
+[roteiro completo, pré-requisitos e evidências](docs/validacao.md).
