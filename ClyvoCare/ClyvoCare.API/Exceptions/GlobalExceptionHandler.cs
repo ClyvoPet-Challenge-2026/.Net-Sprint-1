@@ -13,11 +13,15 @@ public sealed class GlobalExceptionHandler(
         Exception exception,
         CancellationToken cancellationToken)
     {
-        var traceId = System.Diagnostics.Activity.Current?.Id ?? httpContext.TraceIdentifier;
+        var activity = System.Diagnostics.Activity.Current;
+        var traceId = activity?.TraceId.ToString() ?? httpContext.TraceIdentifier;
 
         logger.LogError(exception, "Exceção não tratada: {Message} : TraceId {TraceId}", exception.Message, traceId);
 
         var (statusCode, title, detail) = MapException(exception, environment);
+
+        if (statusCode >= 500)
+            activity?.SetStatus(System.Diagnostics.ActivityStatusCode.Error);
 
         httpContext.Response.StatusCode = statusCode;
         httpContext.Response.ContentType = "application/problem+json";
@@ -33,7 +37,7 @@ public sealed class GlobalExceptionHandler(
 
         if (environment.IsDevelopment())
         {
-            problem.Extensions["traceId"] = httpContext.TraceIdentifier;
+            problem.Extensions["traceId"] = traceId;
         }
 
         await httpContext.Response.WriteAsJsonAsync(problem, cancellationToken);
@@ -46,6 +50,8 @@ public sealed class GlobalExceptionHandler(
     {
         return exception switch
         {
+            ForbiddenException e => (StatusCodes.Status403Forbidden, "Acesso negado", e.Message),
+            ConflictException e => (StatusCodes.Status409Conflict, "Conflito", e.Message),
             ArgumentNullException e => (StatusCodes.Status400BadRequest, "Requisição inválida", e.Message),
             ArgumentException e => (StatusCodes.Status400BadRequest, "Requisição inválida", e.Message),
             DomainException e => (StatusCodes.Status400BadRequest, "Não foi possível concluir a operação", e.Message),

@@ -43,6 +43,8 @@ public static class ClyvoCareServiceCollectionExtensions
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
         services.AddScoped<ICityRepository, CityRepository>();
         services.AddScoped<IClinicRepository, ClinicRepository>();
+        services.AddScoped<IAppointmentRepository, AppointmentRepository>();
+        services.AddScoped<IClinicalIdentityRepository, ClinicalIdentityRepository>();
 
         return services;
     }
@@ -56,6 +58,8 @@ public static class ClyvoCareServiceCollectionExtensions
         services.AddScoped<IStateService, StateService>();
         services.AddScoped<ICityService, CityService>();
         services.AddScoped<IClinicService, ClinicService>();
+        services.AddScoped<IAppointmentService, AppointmentService>();
+        services.AddSingleton(TimeProvider.System);
 
         return services;
     }

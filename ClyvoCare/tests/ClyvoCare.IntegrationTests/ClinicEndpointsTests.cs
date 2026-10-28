@@ -11,7 +11,7 @@ public class ClinicEndpointsTests
 
     public ClinicEndpointsTests(CustomWebApplicationFactory factory)
     {
-        _client = factory.CreateClient();
+        _client = factory.CreateAuthenticatedClient();
     }
 
     [Fact]

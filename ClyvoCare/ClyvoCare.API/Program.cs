@@ -1,7 +1,12 @@
+using ClyvoCare.API.Swagger;
+using ClyvoCare.Application.Diagnostics;
+using ClyvoCare.Infrastructure.Diagnostics;
+using OpenTelemetry.Trace;
 using System.Reflection;
 using ClyvoCare.API.Exceptions;
 using ClyvoCare.API.Extensions;
 using ClyvoCare.API.Health;
+using ClyvoCare.API.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 using OpenTelemetry.Metrics;
@@ -25,10 +30,14 @@ public partial class Program
         builder.Services.AddClyvoCareDbContext(builder.Configuration);
 
         builder.Services.AddClyvoCareRepositories();
+        builder.Services.AddClyvoCareMongo(builder.Configuration);
 
         builder.Services.AddClyvoCareApplicationServices();
 
-        builder.Services.AddControllers();
+        builder.Services.AddClyvoCareAuthentication(builder.Configuration);
+
+        builder.Services.AddControllers().AddJsonOptions(options =>
+            options.JsonSerializerOptions.Converters.Add(new AppointmentDateTimeConverter()));
 
         builder.Services.AddEndpointsApiExplorer();
 
@@ -51,6 +60,16 @@ public partial class Program
 
         builder.Services.AddOpenTelemetry()
             .ConfigureResource(r => r.AddService("ClyvoCare.API"))
+            .WithTracing(tracing =>
+            {
+                tracing
+                    .AddSource(ApplicationDiagnostics.SourceName, PersistenceDiagnostics.SourceName)
+                    .AddAspNetCoreInstrumentation()
+                    .AddHttpClientInstrumentation();
+
+                if (builder.Configuration.GetValue<bool>("Telemetry:OtlpEnabled"))
+                    tracing.AddOtlpExporter();
+            })
             .WithMetrics(metrics =>
             {
                 metrics
@@ -70,24 +89,41 @@ public partial class Program
             ?? throw new InvalidOperationException("Connection string 'ClyvoCareOracle' não encontrada.");
 
         builder.Services.AddHealthChecks()
+            .AddCheck<MongoHealthCheck>("MongoDB Audit")
             .AddOracle(oracleConnectionString, name: "Oracle FIAP")
             .AddUrlGroup(new Uri("https://fiap.com.br"), "FIAP")
             .AddUrlGroup(new Uri("https://google.com.br"), "Google");
 
         builder.Services.AddSwaggerGen(options =>
         {
+            options.OperationFilter<ClinicListResponseOperationFilter>();
             options.SwaggerDoc("v1", new OpenApiInfo
             {
                 Title = "ClyvoCare API",
                 Version = "v1",
                 Description =
                     "API REST do contexto de operação clínica do projeto ClyvoCare (Challenge FIAP 2026). " +
-                    "Gerencia clínicas veterinárias, eventos clínicos e lembretes vinculados aos pets cadastrados pela API Java.",
+                    "Gerencia clínicas veterinárias e agendamentos vinculados aos pets cadastrados pela API Java.",
                 Contact = new OpenApiContact
                 {
                     Name = "Equipe ClyvoCare",
                     Email = "contato@example.com"
                 }
+            });
+
+            options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+            {
+                Type = SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT",
+                Description = "Token RS256 obtido em /auth/login da API Java."
+            });
+            options.AddSecurityRequirement(new OpenApiSecurityRequirement
+            {
+                [new OpenApiSecurityScheme
+                {
+                    Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+                }] = Array.Empty<string>()
             });
 
             var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
@@ -115,6 +151,7 @@ public partial class Program
 
         app.UseHttpsRedirection();
         app.UseCors();
+        app.UseAuthentication();
         app.UseAuthorization();
         app.MapControllers();
 

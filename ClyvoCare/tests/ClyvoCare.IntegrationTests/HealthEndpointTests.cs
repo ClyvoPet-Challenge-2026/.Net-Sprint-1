@@ -13,7 +13,7 @@ public class HealthEndpointTests
     }
 
     [Fact]
-    public async Task GetHealth_DeveResponderComCorpoJsonDeChecks()
+    public async Task GetHealth_ComDependenciasSubstituidas_DeveResponderComContratoJsonDeChecks()
     {
         //Arrange
 
@@ -26,7 +26,11 @@ public class HealthEndpointTests
 
         Assert.True(json.RootElement.TryGetProperty("status", out _));
         Assert.True(json.RootElement.TryGetProperty("checks", out var checks));
-        Assert.True(checks.GetArrayLength() >= 3);
+        var names = checks.EnumerateArray().Select(check => check.GetProperty("name").GetString()).ToArray();
+        Assert.Contains("Oracle FIAP", names);
+        Assert.Contains("FIAP", names);
+        Assert.Contains("Google", names);
+        Assert.Contains("MongoDB Audit", names);
     }
 
     [Fact]
