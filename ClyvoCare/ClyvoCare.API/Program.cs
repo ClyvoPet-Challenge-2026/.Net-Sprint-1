@@ -2,6 +2,7 @@ using System.Reflection;
 using ClyvoCare.API.Exceptions;
 using ClyvoCare.API.Extensions;
 using ClyvoCare.API.Health;
+using ClyvoCare.API.Swagger;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 using OpenTelemetry.Metrics;
@@ -27,6 +28,7 @@ public partial class Program
         builder.Services.AddClyvoCareRepositories();
 
         builder.Services.AddClyvoCareApplicationServices();
+        builder.Services.AddClyvoCareAuthentication(builder.Configuration);
 
         builder.Services.AddControllers();
 
@@ -76,6 +78,14 @@ public partial class Program
 
         builder.Services.AddSwaggerGen(options =>
         {
+            options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+            {
+                Type = SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT",
+                Description = "JWT emitido pelo login Java. Informe somente o token."
+            });
+            options.OperationFilter<AuthorizationOperationFilter>();
             options.SwaggerDoc("v1", new OpenApiInfo
             {
                 Title = "ClyvoCare API",
@@ -115,6 +125,7 @@ public partial class Program
 
         app.UseHttpsRedirection();
         app.UseCors();
+        app.UseAuthentication();
         app.UseAuthorization();
         app.MapControllers();
 

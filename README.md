@@ -53,12 +53,14 @@ git clone https://github.com/ClyvoPet-Challenge-2026/.Net-Sprint-1.git
 cd .Net-Sprint-1/ClyvoCare
 ```
 
-Defina a conexão no mesmo terminal em que você vai iniciar a aplicação. Substitua os valores de usuário e senha pelos da sua conta Oracle.
+Defina a conexão e o caminho da chave pública no mesmo terminal em que você vai iniciar a aplicação. Substitua os valores de usuário e senha pelos da sua conta Oracle e o caminho pelo arquivo público do par usado pela API Java.
 
 No **Bash ou Git Bash**:
 
 ```bash
 export ConnectionStrings__ClyvoCareOracle='Data Source=oracle.fiap.com.br:1521/ORCL;User Id=SEU_RM;Password=SUA_SENHA;'
+export Jwt__PublicKeyPath='/CAMINHO/ABSOLUTO/public_key.pem'
+export Jwt__Issuer='clyvocare-api'
 dotnet restore
 dotnet run --project ClyvoCare.API --launch-profile http
 ```
@@ -67,13 +69,21 @@ No **PowerShell**:
 
 ```powershell
 $env:ConnectionStrings__ClyvoCareOracle = 'Data Source=oracle.fiap.com.br:1521/ORCL;User Id=SEU_RM;Password=SUA_SENHA;'
+$env:Jwt__PublicKeyPath = 'C:/CAMINHO/ABSOLUTO/public_key.pem'
+$env:Jwt__Issuer = 'clyvocare-api'
 dotnet restore
 dotnet run --project ClyvoCare.API --launch-profile http
 ```
 
 A variável de ambiente substitui `ConnectionStrings:ClyvoCareOracle` do [appsettings.json](ClyvoCare/ClyvoCare.API/appsettings.json). Se você inicia pela IDE, configure essa mesma variável na execução. Para usar outro Oracle, ajuste o host, a porta e o serviço em `Data Source`.
 
-As credenciais conectam a aplicação ao banco. **A API .NET atual não exige login ou token nos endpoints.** A autenticação JWT e os perfis `ADMIN` e `OWNER` documentados em Java pertencem à API Java.
+As credenciais conectam a aplicação ao banco. A .NET valida os JWTs emitidos pelo login Java e consulta a conta no mesmo schema Oracle. Não há login separado na .NET. Leituras de clínicas, cidades e estados são públicas; criar, atualizar e excluir clínicas exige `ADMIN`.
+
+`Jwt__PublicKeyPath` recebe um caminho de arquivo, sem o prefixo `file:` usado na configuração Java. No Git Bash do Windows, use um caminho como `C:/chaves/public_key.pem`. Sem configuração explícita, o padrão é `.keys/public_key.pem`, relativo à pasta de execução. A chave é carregada e validada na inicialização: arquivo ausente, chave privada, PEM inválido ou RSA com menos de 2048 bits impedem a API de iniciar. A .NET recebe somente a pública; a privada permanece exclusiva da Java. Arquivos PEM locais ficam fora do Git.
+
+O token deve ter assinatura RS256, emissor `clyvocare-api`, expiração, `sub` com e-mail, `ownerId` positivo e um único perfil `OWNER` ou `ADMIN`. A API confere ID, e-mail, perfil e `ENABLED='Y'` no banco a cada autenticação. Conta desativada ou identidade divergente retorna `401`, mesmo com assinatura válida. Tokens antigos sem `ownerId` exigem novo login. O contrato Java não emite audience, portanto essa verificação está desabilitada; assinatura, emissor, prazo e conta continuam obrigatórios. A tolerância de relógio é zero: mantenha os servidores sincronizados.
+
+No Swagger, use **Authorize** e informe o token Java sem o prefixo `Bearer`. O contrato marca autenticação nas operações protegidas, preservando as consultas públicas. Em clientes HTTP, envie `Authorization: Bearer SEU_TOKEN`. Falta de token ou token inválido retorna `401`; conta `OWNER` tentando alterar clínicas recebe `403`. Ao trocar o par de chaves, distribua a nova pública, reinicie os serviços e faça novo login.
 
 ### O que acontece ao iniciar
 
@@ -169,9 +179,9 @@ As rotas de negócio começam com `/api`. As listagens retornam arrays, sem pagi
 | `GET` | `/api/clinicas/{id}` | Consultar uma clínica | `200`, `404` |
 | `GET` | `/api/clinicas/por-cidade/{cityId}` | Listar clínicas de uma cidade existente | `200`, `404` |
 | `GET` | `/api/clinicas/buscar?nome=&cnpj=` | Buscar por nome parcial e/ou CNPJ exato | `200` |
-| `POST` | `/api/clinicas` | Cadastrar uma clínica | `201`, `400`, `404` |
-| `PUT` | `/api/clinicas/{id}` | Atualizar os dados de uma clínica | `204`, `400`, `404` |
-| `DELETE` | `/api/clinicas/{id}` | Excluir uma clínica | `204`, `404` |
+| `POST` | `/api/clinicas` | Cadastrar uma clínica (`ADMIN`) | `201`, `400`, `401`, `403`, `404` |
+| `PUT` | `/api/clinicas/{id}` | Atualizar os dados de uma clínica (`ADMIN`) | `204`, `400`, `401`, `403`, `404` |
+| `DELETE` | `/api/clinicas/{id}` | Excluir uma clínica (`ADMIN`) | `204`, `401`, `403`, `404` |
 
 ### Cadastrar e atualizar uma clínica
 
@@ -179,6 +189,7 @@ Primeiro, consulte `GET /api/cidades` e escolha uma cidade existente. Use o ID r
 
 ```http
 POST /api/clinicas
+Authorization: Bearer TOKEN_ADMIN_JAVA
 Content-Type: application/json
 
 {
@@ -326,7 +337,9 @@ dotnet test tests/ClyvoCare.Application.Tests/ClyvoCare.Application.Tests.csproj
 
 O restore precisa de acesso ao NuGet. Os testes unitários não usam banco real. Nos testes de integração, o contexto de persistência é substituído por SQLite em memória, com estados e cidades de teste.
 
-**As verificações de `/health` continuam usando o Oracle configurado e os sites externos.** A factory substitui o DbContext, mas não troca os health checks. Esse teste confere o formato do JSON e a presença das verificações; passar nele não comprova que o Oracle está saudável. Os testes com SQLite também não validam o DDL e as particularidades do provider Oracle.
+Nos testes HTTP, a factory substitui o DbContext por SQLite, fornece contas controladas e gera um par RSA temporário. O middleware JWT real verifica os tokens; as permissões não são simuladas por um handler de autenticação alternativo. Os health checks externos são substituídos por respostas saudáveis controladas, sem acesso ao Oracle ou aos sites. Passar nesses testes não comprova disponibilidade real das dependências nem particularidades do provider Oracle.
+
+Os testes de autenticação cobrem assinatura alterada, algoritmo incorreto, token sem assinatura, emissor/prazo inválidos, claims ausentes ou ambíguas, identidade divergente, conta desativada e autorização de consultas/escritas. Há também verificações das chaves de configuração e do contrato Swagger. A integração com o login Java e o Oracle reais exige uma validação separada no ambiente integrado.
 
 ## Tecnologias utilizadas
 
@@ -387,6 +400,6 @@ Outros arquivos úteis:
 | Organização e documentação | Projetos por camada e instruções de execução neste README |
 | Integração com Java | Schema Oracle compartilhado e SQL em `docs/script.sql` |
 
-Tracing distribuído e um middleware próprio de Correlation ID ainda precisam ser implementados para completar esses pontos de observabilidade. Os testes de autenticação também dependem de adicionar autenticação à API .NET.
+Tracing distribuído e a correlação consistente dos identificadores entre logs e respostas ainda precisam ser implementados para completar esses pontos de observabilidade. A autenticação JWT compartilhada com Java e os testes de autorização já estão implementados.
 
-Eventos clínicos, lembretes, cache e autenticação continuam como evolução prevista. O CRUD implementado nesta versão é o de clínicas; as demais tabelas presentes no SQL não representam endpoints já disponíveis.
+Os endpoints de eventos clínicos, os lembretes e o cache continuam como evolução prevista. O domínio e o mapeamento de agendamentos já existem, mas o CRUD HTTP disponível nesta etapa é o de clínicas. As demais tabelas presentes no SQL não representam endpoints já disponíveis.

@@ -43,6 +43,7 @@ public static class ClyvoCareServiceCollectionExtensions
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
         services.AddScoped<ICityRepository, CityRepository>();
         services.AddScoped<IClinicRepository, ClinicRepository>();
+        services.AddScoped<IClinicalIdentityRepository, ClinicalIdentityRepository>();
 
         return services;
     }

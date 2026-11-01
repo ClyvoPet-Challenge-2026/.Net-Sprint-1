@@ -1,6 +1,7 @@
 using ClyvoCare.Application.DTOs;
 using ClyvoCare.Application.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ClyvoCare.API.Controllers;
 
@@ -76,6 +77,7 @@ public class ClinicController(IClinicService clinicService) : ControllerBase
     /// <response code="400">CNPJ duplicado ou modelo inválido.</response>
     /// <response code="404">Cidade informada não encontrada.</response>
     [HttpPost]
+    [Authorize(Roles = "ADMIN")]
     [ProducesResponseType(typeof(ClinicResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -97,6 +99,7 @@ public class ClinicController(IClinicService clinicService) : ControllerBase
     /// <response code="400">CNPJ pertence a outra clínica ou modelo inválido.</response>
     /// <response code="404">Clínica ou cidade não encontrada.</response>
     [HttpPut("{id:long}")]
+    [Authorize(Roles = "ADMIN")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -116,6 +119,7 @@ public class ClinicController(IClinicService clinicService) : ControllerBase
     /// <response code="204">Removida.</response>
     /// <response code="404">Não encontrada.</response>
     [HttpDelete("{id:long}")]
+    [Authorize(Roles = "ADMIN")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public IActionResult Delete(long id)

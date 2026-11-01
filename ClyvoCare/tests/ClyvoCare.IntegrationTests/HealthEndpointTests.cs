@@ -25,6 +25,7 @@ public class HealthEndpointTests
         using var json = JsonDocument.Parse(body);
 
         Assert.True(json.RootElement.TryGetProperty("status", out _));
+        Assert.Equal("Healthy", json.RootElement.GetProperty("status").GetString());
         Assert.True(json.RootElement.TryGetProperty("checks", out var checks));
         Assert.True(checks.GetArrayLength() >= 3);
     }

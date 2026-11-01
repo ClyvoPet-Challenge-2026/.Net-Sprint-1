@@ -36,6 +36,10 @@ desktop.ini
 # NuGet
 *.nupkg
 *.snupkg
+
+# External signing keys
+.keys/
+*.pem
 .nuget/
 packages/
 
