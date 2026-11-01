@@ -2,6 +2,8 @@ using ClyvoCare.Domain.Entities;
 using ClyvoCare.Infrastructure.Persistence;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using ClyvoCare.Infrastructure.Persistence.Repositories;
+using ClyvoCare.Domain.Exceptions;
 
 namespace ClyvoCare.IntegrationTests;
 
@@ -91,6 +93,29 @@ public class AppointmentPersistenceTests : IDisposable
         Assert.Throws<SqliteException>(() => _db.Database.ExecuteSqlInterpolated(
             $"DELETE FROM TB_CAD_CLINIC WHERE ID = {_clinicId}"));
         Assert.Equal(1, _db.Appointments.Count());
+    }
+
+    [Fact]
+    public void Repository_CompetingDuplicate_IsConflictAndDetachesFailedInsert()
+    {
+        var repository = new AppointmentRepository(_db);
+        repository.Add(Appointment.Create(1, _clinicId, "EXAM", Now.AddDays(1), "First", null, Now));
+        var duplicate = Appointment.Create(1, _clinicId, "EXAM", Now.AddDays(1), "Duplicate", null, Now);
+
+        Assert.Throws<ConflictException>(() => repository.Add(duplicate));
+        Assert.Equal(EntityState.Detached, _db.Entry(duplicate).State);
+        Assert.Equal(1, _db.Appointments.Count());
+    }
+
+    [Fact]
+    public void Repository_UnrelatedPersistenceFailure_IsNotReportedAsDuplicate()
+    {
+        var repository = new AppointmentRepository(_db);
+        var invalid = Appointment.Create(999999, _clinicId, "EXAM", Now.AddDays(1), "Reason", null, Now);
+
+        Assert.Throws<DbUpdateException>(() => repository.Add(invalid));
+        Assert.Equal(EntityState.Detached, _db.Entry(invalid).State);
+        Assert.Empty(_db.Appointments);
     }
 
     public void Dispose()

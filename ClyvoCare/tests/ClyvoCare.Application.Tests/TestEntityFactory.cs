@@ -1,5 +1,6 @@
 using System.Reflection;
 using ClyvoCare.Domain.Entities;
+using ClyvoCare.Domain.Common;
 
 namespace ClyvoCare.Application.Tests;
 
@@ -29,9 +30,17 @@ internal static class TestEntityFactory
         SetProperty(clinic, nameof(Clinic.City), city);
     }
 
-    public static void SetId(Clinic clinic, long id)
+    public static void SetId<T>(T entity, long id) where T : BaseEntity
     {
-        SetProperty(clinic, nameof(Clinic.Id), id);
+        SetProperty(entity, nameof(BaseEntity.Id), id);
+    }
+
+    public static PetReference CreatePet(long id, long ownerId)
+    {
+        var pet = Instantiate<PetReference>();
+        SetId(pet, id);
+        SetProperty(pet, nameof(PetReference.OwnerId), ownerId);
+        return pet;
     }
 
     private static T Instantiate<T>() =>

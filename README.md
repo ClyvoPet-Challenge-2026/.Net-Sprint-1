@@ -1,6 +1,6 @@
 # ClyvoCare API (.NET)
 
-API REST para cadastrar clínicas veterinárias e consultar sua localização. Construída em ASP.NET Core com Oracle, faz parte do Challenge FIAP 2026, turma 2TDSPG.
+API REST para cadastrar clínicas veterinárias, consultar sua localização e agendar atendimentos dos pets. Construída em ASP.NET Core com Oracle, faz parte do Challenge FIAP 2026, turma 2TDSPG.
 
 Com ela, você pode cadastrar uma clínica, atualizar seus dados e encontrar clínicas por cidade, nome ou CNPJ. Esta API complementa a [API Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1), responsável pelos tutores, pets, planos e contratações.
 
@@ -24,7 +24,7 @@ A divisão de responsabilidades no banco é:
 | Estados e cidades — `TB_CAD_STATE`, `TB_CAD_CITY` | Cadastro e manutenção | Consulta |
 | Tutores, pets, espécies, raças, planos e contratações | Cadastro e manutenção | Sem endpoints implementados |
 | Clínicas — `TB_CAD_CLINIC` | A estrutura faz parte do schema compartilhado | CRUD e buscas |
-| Eventos clínicos — `TB_HEA_CLINICAL_EVENT` | Criação da tabela no baseline compartilhado | Domínio, mapeamento e migration de detalhes; endpoints em desenvolvimento |
+| Eventos clínicos — `TB_HEA_CLINICAL_EVENT` | Criação da tabela no baseline compartilhado | Criação e consulta de agendamentos, com isolamento por tutor |
 | Lembretes | A estrutura faz parte do schema compartilhado | Sem entidades e endpoints implementados |
 
 Para compartilhar os dados, configure as duas APIs para usar **o mesmo banco e o mesmo schema Oracle**. A .NET consulta as tabelas pelo Entity Framework Core; não faz chamadas HTTP à API Java para buscar cidades. Depois que o schema estiver preparado, Java não precisa estar em execução para a .NET consultar esses registros.
@@ -167,7 +167,7 @@ O deploy ACI atual desabilita Flyway e usa Hibernate para criar ou atualizar tab
 
 ## Endpoints
 
-As rotas de negócio começam com `/api`. As listagens retornam arrays, sem paginação.
+As rotas de negócio começam com `/api`. As listagens de clínicas e localidades retornam arrays; a listagem de agendamentos é paginada.
 
 | Método | Rota | Uso | Respostas principais |
 |---|---|---|---|
@@ -182,6 +182,43 @@ As rotas de negócio começam com `/api`. As listagens retornam arrays, sem pagi
 | `POST` | `/api/clinicas` | Cadastrar uma clínica (`ADMIN`) | `201`, `400`, `401`, `403`, `404` |
 | `PUT` | `/api/clinicas/{id}` | Atualizar os dados de uma clínica (`ADMIN`) | `204`, `400`, `401`, `403`, `404` |
 | `DELETE` | `/api/clinicas/{id}` | Excluir uma clínica (`ADMIN`) | `204`, `401`, `403`, `404` |
+| `POST` | `/api/agendamentos` | Agendar atendimento para pet próprio (`OWNER`) ou qualquer pet (`ADMIN`) | `201`, `400`, `401`, `403`, `404`, `409` |
+| `GET` | `/api/agendamentos` | Listar os agendamentos visíveis para a conta | `200`, `400`, `401`, `403` |
+| `GET` | `/api/agendamentos/{id}` | Consultar um agendamento visível | `200`, `400`, `401`, `403`, `404` |
+
+### Criar e consultar agendamentos
+
+Use o mesmo JWT do login Java e IDs retornados pelas APIs. O exemplo abaixo exige um pet da conta, uma clínica existente e uma data ainda futura no momento do envio:
+
+```http
+POST /api/agendamentos
+Authorization: Bearer TOKEN_JAVA
+Content-Type: application/json
+
+{
+  "petId": 1,
+  "clinicId": 1,
+  "eventType": "CONSULTATION",
+  "scheduledAt": "2035-01-15T12:15:00Z",
+  "reason": "Check-up Geral",
+  "notes": "Observações opcionais do tutor"
+}
+```
+
+`eventType` aceita `CONSULTATION`, `VACCINATION`, `SURGERY`, `FOLLOW_UP` ou `EXAM`. O horário deve ser uma string ISO 8601 com `Z` ou offset explícito, como `-03:00`. Horários sem fuso, datas passadas, motivo vazio ou maior que 150 caracteres e observações maiores que 1000 retornam `400`. Os detalhes são aparados e observações vazias viram nulo. O servidor define o status inicial como `SCHEDULED`.
+
+A resposta `201` contém `id`, `petId`, `clinicId`, `eventType`, `scheduledAt`, `status`, `reason` e `notes`, além do cabeçalho `Location` para consultar o registro. A confirmação do mobile deve ocorrer somente depois desse retorno. A API salva no Oracle, normalizando o horário para UTC e precisão de microssegundos. Dois eventos do mesmo pet no mesmo instante retornam `409`, mesmo que o cliente use offsets diferentes; o índice único também protege a inserção após uma verificação concorrente. Falhas de persistência sem duplicidade não são convertidas em sucesso ou conflito fictício.
+
+O tutor não pode criar eventos para outro tutor (`403`). Na leitura por ID, registros de outro tutor ficam ocultos com `404`. As listas também filtram pela identidade autenticada; `ADMIN` pode consultar todos. Referências inexistentes na criação retornam `404`, sem inserção.
+
+```http
+GET /api/agendamentos?petId=1&pageNumber=1&pageSize=20
+Authorization: Bearer TOKEN_JAVA
+```
+
+A listagem retorna `items`, `pageNumber`, `pageSize`, `totalCount` e `totalPages`, ordenados por horário e ID. `petId` é opcional, as páginas começam em 1 e `pageSize` aceita de 1 a 100. Paginação inválida ou deslocamento acima do limite de inteiro retorna `400`. Sem resultados ou fora da última página, a resposta é `200` com lista vazia e as contagens correspondentes. Eventos legados podem ter `reason` e `notes` nulos.
+
+Não há endpoints de edição/cancelamento de agendamento, lembretes futuros ou reserva de profissional/disponibilidade neste fluxo. A notificação do mobile permanece local e posterior à confirmação da criação.
 
 ### Cadastrar e atualizar uma clínica
 
@@ -402,4 +439,4 @@ Outros arquivos úteis:
 
 Tracing distribuído e a correlação consistente dos identificadores entre logs e respostas ainda precisam ser implementados para completar esses pontos de observabilidade. A autenticação JWT compartilhada com Java e os testes de autorização já estão implementados.
 
-Os endpoints de eventos clínicos, os lembretes e o cache continuam como evolução prevista. O domínio e o mapeamento de agendamentos já existem, mas o CRUD HTTP disponível nesta etapa é o de clínicas. As demais tabelas presentes no SQL não representam endpoints já disponíveis.
+Criação e consulta de agendamentos já estão disponíveis, com autenticação, isolamento por tutor e testes HTTP de persistência, validação e duplicidade. Lembretes e cache continuam como evolução prevista; as demais tabelas presentes no SQL não representam endpoints já disponíveis. A concorrência real e a integração completa com Java, Oracle e dispositivo ainda exigem validação no ambiente integrado.

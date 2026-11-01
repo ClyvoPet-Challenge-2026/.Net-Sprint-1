@@ -46,6 +46,8 @@ public sealed class GlobalExceptionHandler(
     {
         return exception switch
         {
+            ForbiddenException e => (StatusCodes.Status403Forbidden, "Forbidden", e.Message),
+            ConflictException e => (StatusCodes.Status409Conflict, "Conflict", e.Message),
             ArgumentNullException e => (StatusCodes.Status400BadRequest, "Requisição inválida", e.Message),
             ArgumentException e => (StatusCodes.Status400BadRequest, "Requisição inválida", e.Message),
             DomainException e => (StatusCodes.Status400BadRequest, "Não foi possível concluir a operação", e.Message),

@@ -3,6 +3,7 @@ using ClyvoCare.API.Exceptions;
 using ClyvoCare.API.Extensions;
 using ClyvoCare.API.Health;
 using ClyvoCare.API.Swagger;
+using ClyvoCare.API.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 using OpenTelemetry.Metrics;
@@ -30,7 +31,8 @@ public partial class Program
         builder.Services.AddClyvoCareApplicationServices();
         builder.Services.AddClyvoCareAuthentication(builder.Configuration);
 
-        builder.Services.AddControllers();
+        builder.Services.AddControllers().AddJsonOptions(options =>
+            options.JsonSerializerOptions.Converters.Add(new AppointmentDateTimeConverter()));
 
         builder.Services.AddEndpointsApiExplorer();
 

@@ -85,6 +85,10 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 INSERT INTO TB_CAD_OWNER VALUES (3, 'disabled@example.com', 'OWNER', 'N');
                 INSERT INTO TB_CAD_OWNER VALUES (4, 'disabled-admin@example.com', 'ADMIN', 'N');
                 INSERT INTO TB_CAD_OWNER VALUES (5, 'deactivate@example.com', 'OWNER', 'Y');
+                INSERT INTO TB_CAD_OWNER VALUES (6, 'other@example.com', 'OWNER', 'Y');
+                INSERT INTO TB_CAD_PET VALUES (1, 2);
+                INSERT INTO TB_CAD_PET VALUES (2, 6);
+                INSERT INTO TB_CAD_PET VALUES (3, 1);
                 """);
             Seed(db);
         });
@@ -98,6 +102,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
         var city = TestEntityFactory.CreateCity(1, "Sao Paulo", state);
         db.Cities.Add(city);
+        db.Clinics.Add(ClyvoCare.Domain.Entities.Clinic.Create("Booking clinic", "88.888.888/0001-88", city.Id, null));
         db.SaveChanges();
     }
 

@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using ClyvoCare.Application.Repositories;
+using ClyvoCare.API.Auth;
+using ClyvoCare.Application.Services.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 
@@ -11,6 +13,8 @@ public static class ClyvoCareAuthenticationExtensions
     public static IServiceCollection AddClyvoCareAuthentication(this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.AddHttpContextAccessor();
+        services.AddScoped<ICurrentUser, CurrentUser>();
         services.AddSingleton<RSA>(_ =>
         {
             var path = configuration["Jwt:PublicKeyPath"] ?? ".keys/public_key.pem";
