@@ -15,6 +15,8 @@ public interface IClinicService
 
     IReadOnlyList<ClinicResponse> Search(string? name, string? cnpj);
 
+    PagedResult<ClinicResponse> SearchPage(ClinicSearchRequest request);
+
     ClinicResponse Create(ClinicRequest request);
 
     ClinicResponse Update(long id, ClinicRequest request);

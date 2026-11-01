@@ -88,6 +88,7 @@ public partial class Program
                 Description = "JWT emitido pelo login Java. Informe somente o token."
             });
             options.OperationFilter<AuthorizationOperationFilter>();
+            options.OperationFilter<ClinicListResponseOperationFilter>();
             options.SwaggerDoc("v1", new OpenApiInfo
             {
                 Title = "ClyvoCare API",

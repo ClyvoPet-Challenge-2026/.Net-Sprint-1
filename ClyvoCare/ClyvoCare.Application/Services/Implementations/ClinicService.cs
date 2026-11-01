@@ -63,6 +63,15 @@ public sealed class ClinicService(
         return ClinicResponse.FromDomain(withCity);
     }
 
+    public PagedResult<ClinicResponse> SearchPage(ClinicSearchRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var search = request.Normalize();
+        var page = clinicRepository.SearchPage(search);
+        return new PagedResult<ClinicResponse>(page.Items.Select(ClinicResponse.FromDomain).ToList(),
+            search.PageNumber, search.PageSize, page.TotalCount);
+    }
+
     /// <inheritdoc />
     public ClinicResponse Update(long id, ClinicRequest request)
     {

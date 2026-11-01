@@ -1,4 +1,5 @@
 using ClyvoCare.Domain.Entities;
+using ClyvoCare.Application.DTOs;
 
 namespace ClyvoCare.Application.Repositories;
 
@@ -16,4 +17,6 @@ public interface IClinicRepository : IRepository<Clinic>
     IReadOnlyList<Clinic> SearchWithCity(string? name, string? cnpj);
 
     bool ExistsByCnpj(string cnpj, long? excludeId = null);
+
+    (IReadOnlyList<Clinic> Items, int TotalCount) SearchPage(ClinicSearchRequest request);
 }

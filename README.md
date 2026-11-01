@@ -167,7 +167,7 @@ O deploy ACI atual desabilita Flyway e usa Hibernate para criar ou atualizar tab
 
 ## Endpoints
 
-As rotas de negócio começam com `/api`. As listagens de clínicas e localidades retornam arrays; a listagem de agendamentos é paginada.
+As rotas de negócio começam com `/api`. As localidades e as rotas legadas de clínicas retornam arrays. `GET /api/clinicas` sem parâmetros preenchidos preserva esse formato; com filtros ou paginação, retorna uma página. A listagem de agendamentos também é paginada.
 
 | Método | Rota | Uso | Respostas principais |
 |---|---|---|---|
@@ -175,7 +175,7 @@ As rotas de negócio começam com `/api`. As listagens de clínicas e localidade
 | `GET` | `/api/estados/{id}` | Consultar um estado | `200`, `404` |
 | `GET` | `/api/cidades` | Listar cidades com o estado aninhado | `200` |
 | `GET` | `/api/cidades/{id}` | Consultar uma cidade | `200`, `404` |
-| `GET` | `/api/clinicas` | Listar clínicas com cidade e estado | `200` |
+| `GET` | `/api/clinicas` | Listar clínicas ou consultar página filtrada, com cidade, estado e links | `200`, `400` |
 | `GET` | `/api/clinicas/{id}` | Consultar uma clínica | `200`, `404` |
 | `GET` | `/api/clinicas/por-cidade/{cityId}` | Listar clínicas de uma cidade existente | `200`, `404` |
 | `GET` | `/api/clinicas/buscar?nome=&cnpj=` | Buscar por nome parcial e/ou CNPJ exato | `200` |
@@ -284,6 +284,43 @@ curl -i "http://localhost:5067/api/clinicas/buscar?cnpj=99.999.999/0001-99"
 No PowerShell, use `curl.exe` no lugar de `curl`. Você também pode executar essas operações pelo Swagger na raiz da API.
 
 A busca por nome não diferencia maiúsculas de minúsculas. Quando nome e CNPJ são informados juntos, os dois filtros são aplicados. Uma cidade existente sem clínicas retorna uma lista vazia; uma cidade inexistente na rota `por-cidade` retorna `404`.
+
+### Filtros, ordenação e paginação das clínicas
+
+O mobile continua usando `GET /api/clinicas` sem parâmetros, que retorna um array. Ao informar um parâmetro preenchido de busca ou paginação, a mesma rota retorna um objeto com `items`, `pageNumber`, `pageSize`, `totalCount`, `totalPages` e `_links`:
+
+```bash
+curl -i 'http://localhost:5067/api/clinicas?nome=Vet&cityId=1&pageNumber=1&pageSize=20&sortBy=name&sortDirection=asc'
+```
+
+| Parâmetro | Regra |
+|---|---|
+| `nome` | Trecho do nome, até 150 caracteres; ignora diferença entre maiúsculas e minúsculas |
+| `cnpj` | Correspondência exata no formato `XX.XXX.XXX/XXXX-XX` |
+| `cityId` | ID positivo da cidade |
+| `pageNumber` | Padrão 1; positivo |
+| `pageSize` | Padrão 20; de 1 a 100 |
+| `sortBy` | `id` (padrão), `name`, `cnpj` ou `cityId` |
+| `sortDirection` | `asc` (padrão) ou `desc` |
+
+Os filtros são combinados com AND. Espaços externos são removidos; `%` e `_` no nome são caracteres literais, sem função de curinga. Não há normalização especial de acentos. A ordenação aceita os nomes indicados sem distinção de caixa e usa ID crescente para desempatar os demais campos. Filtros, ordenação, contagem e recorte são executados no banco.
+
+Parâmetros inválidos ou deslocamento acima do limite de inteiro retornam `400`. Uma busca paginada sem resultados, inclusive por cidade inexistente, retorna `200` com lista vazia. Uma página fora do limite mantém o total encontrado e retorna `items` vazio. A contagem e a página usam consultas separadas; alterações concorrentes podem modificar os dados entre elas. As rotas `/buscar` e `/por-cidade/{cityId}` preservam o formato de array e suas respostas anteriores.
+
+### Links de navegação (HATEOAS)
+
+Cada clínica inclui `_links.self` e `_links.by-city`. Para `ADMIN`, também aparecem `_links.update` e `_links.delete`; as operações de alteração continuam protegidas por autorização no servidor. Os links têm `href` e `method`, por exemplo:
+
+```json
+{
+  "self": { "href": "/api/clinicas/1", "method": "GET" },
+  "by-city": { "href": "/api/clinicas/por-cidade/1", "method": "GET" }
+}
+```
+
+As páginas incluem links `self`, `first` e `last`, além de `prev` e `next` quando aplicáveis. Eles preservam filtros, ordenação e tamanho de página. Os endereços são relativos à origem da API .NET e são gerados pelo roteamento. No Swagger, a resposta `200` dessa listagem usa `oneOf` para documentar tanto o array legado quanto a página.
+
+Os testes verificam as oito combinações de ordenação, filtros combinados, desempate, limites, links navegáveis com caracteres codificados, permissões dos links e os dois formatos de resposta. As consultas de listagem, filtros, paginação e ordenação também foram conferidas por GET contra o Oracle compartilhado, sem gravações ou migrations; isso não substitui a validação do deploy e do fluxo completo no dispositivo.
 
 ## Monitoramento e observabilidade
 
