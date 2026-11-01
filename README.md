@@ -24,7 +24,8 @@ A divisão de responsabilidades no banco é:
 | Estados e cidades — `TB_CAD_STATE`, `TB_CAD_CITY` | Cadastro e manutenção | Consulta |
 | Tutores, pets, espécies, raças, planos e contratações | Cadastro e manutenção | Sem endpoints implementados |
 | Clínicas — `TB_CAD_CLINIC` | A estrutura faz parte do schema compartilhado | CRUD e buscas |
-| Eventos clínicos e lembretes | A estrutura faz parte do schema compartilhado | Escopo previsto, ainda sem entidades e endpoints implementados |
+| Eventos clínicos — `TB_HEA_CLINICAL_EVENT` | Criação da tabela no baseline compartilhado | Domínio, mapeamento e migration de detalhes; endpoints em desenvolvimento |
+| Lembretes | A estrutura faz parte do schema compartilhado | Sem entidades e endpoints implementados |
 
 Para compartilhar os dados, configure as duas APIs para usar **o mesmo banco e o mesmo schema Oracle**. A .NET consulta as tabelas pelo Entity Framework Core; não faz chamadas HTTP à API Java para buscar cidades. Depois que o schema estiver preparado, Java não precisa estar em execução para a .NET consultar esses registros.
 
@@ -96,7 +97,7 @@ O CORS permite `http://localhost:5173` e `http://localhost:3000` por padrão. Pa
 
 ## Banco de dados compartilhado
 
-O arquivo [docs/script.sql](docs/script.sql) é uma cópia do [SQL da API Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1/blob/10e529f347c39b3852a6f904ff2c025b8ad0c0ad/docs/script.sql), na revisão `10e529f`. Ele reúne o modelo das duas APIs, com 13 tabelas, dados de demonstração, funções, procedimentos, trigger de auditoria e consultas de verificação.
+O arquivo [docs/script.sql](docs/script.sql) é uma cópia do [SQL da API Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1/blob/859459bed8e3de4152b6c93454874205a639f54a/docs/script.sql), na revisão `859459b`. Ele reúne o modelo das duas APIs, com 13 tabelas, dados de demonstração, funções e procedimentos organizados em packages, trigger de auditoria e consultas de verificação.
 
 Essa cópia também corresponde ao `script_bd.sql` da raiz do projeto Java. Ao atualizar o modelo compartilhado, mantenha as cópias sincronizadas. Use `docs/script.sql` como referência para preparar e consultar o modelo atual.
 
@@ -133,6 +134,16 @@ Os objetos de contratação e auditoria ficam disponíveis no banco, mas a API .
 ### Migrations do Entity Framework e do Flyway
 
 A migration [InitialCreate](ClyvoCare/ClyvoCare.Infrastructure/Migrations/20260523133532_InitialCreate.cs) da .NET tem `Up()` e `Down()` vazios. Ela é um ponto de partida para o histórico do Entity Framework; executar `dotnet ef database update` não cria as tabelas de negócio.
+
+A migration [AddAppointmentDetails](ClyvoCare/ClyvoCare.Infrastructure/Migrations/20261026190000_AddAppointmentDetails.cs) mantém o ID `20261026190000_AddAppointmentDetails`, já registrado no schema compartilhado inspecionado. Ela acrescenta `REASON` NVARCHAR2(150), `NOTES` NVARCHAR2(1000), o índice `IX_EVENT_CLINIC` e o índice único `UX_EVENT_PET_DATE` em `(PET_ID, EVENT_DATE)`. As colunas permitem nulo para preservar eventos antigos. A entidade exige motivo em novas criações, aceita os cinco tipos definidos no banco e fixa o status inicial em `SCHEDULED`.
+
+Os novos horários são normalizados para UTC e truncados à precisão de microssegundos antes da validação de futuro. `EVENT_DATE` não armazena fuso; a leitura assume UTC sem deslocar os valores gravados. Horários legados que tenham sido armazenados como hora local exigem uma revisão separada dos dados.
+
+As referências de tutor e pet são mapeadas para consulta e ficam excluídas das migrations EF. Não há endpoints .NET para gravar essas identidades. A migration clínica não recria a tabela de eventos nem as tabelas Java; as chaves estrangeiras existentes devem ser preservadas.
+
+Antes de atualizar outro ambiente, confira o schema, os históricos Flyway/EF, as colunas, as definições dos índices e possíveis duplicidades de pet/data. Prepare o baseline com Flyway primeiro. Se o histórico EF já contém `20261026190000_AddAppointmentDetails` e os objetos correspondem à migration, ela não deve ser reaplicada. Se há objetos sem histórico correspondente ou uma atualização parcial, investigue antes de executar novamente. A aplicação não aplica migrations automaticamente.
+
+**O rollback dessa migration remove as duas colunas e os índices, perdendo os motivos e observações armazenados.** Ele não faz parte da validação normal. Não use o script destrutivo de demonstração para corrigir divergências em um banco existente.
 
 A evolução do schema na execução normal de Java está nas [migrations Flyway](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1/tree/develop/src/main/resources/db/migration). Elas criam a estrutura, convertem status e pagamentos para texto e carregam os dados de demonstração. As orientações para schemas existentes estão no [README de Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1#banco-de-dados-e-migrations).
 
@@ -289,6 +300,8 @@ A solução tem três projetos de teste com xUnit, organizados por camada:
 | [ClyvoCare.Domain.Tests](ClyvoCare/tests/ClyvoCare.Domain.Tests) | Criação e atualização de clínicas, invariantes e normalização dos campos |
 | [ClyvoCare.Application.Tests](ClyvoCare/tests/ClyvoCare.Application.Tests) | Serviços de clínicas, cidades e estados, com repositórios simulados por Moq |
 | [ClyvoCare.IntegrationTests](ClyvoCare/tests/ClyvoCare.IntegrationTests) | Endpoints de clínicas, health checks e métricas usando `WebApplicationFactory<Program>` |
+
+Os testes de domínio também verificam as invariantes dos agendamentos, UTC, precisão de microssegundos e limites de motivo/observações. A integração inclui persistência dos detalhes, leitura de eventos legados, índice único e restrição de exclusão com SQLite. Os testes de migration geram SQL com o provedor Oracle sem conectar ao banco e verificam o ID já aplicado, o snapshot e a exclusão das referências Java das migrations. Essas verificações não comprovam uma atualização ou concorrência real no Oracle.
 
 Os testes seguem o padrão Arrange, Act, Assert e nomes que descrevem método, cenário e resultado. Os testes HTTP usam uma aplicação compartilhada por `CollectionFixture`.
 

@@ -15,6 +15,12 @@ public class ClyvoCareContext(DbContextOptions<ClyvoCareContext> options) : DbCo
 
     public DbSet<Clinic> Clinics { get; set; }
 
+    public DbSet<Appointment> Appointments { get; set; }
+
+    public DbSet<OwnerReference> Owners { get; set; }
+
+    public DbSet<PetReference> Pets { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ClyvoCareContext).Assembly);
