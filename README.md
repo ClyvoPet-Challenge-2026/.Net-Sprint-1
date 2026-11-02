@@ -116,7 +116,7 @@ O CORS permite `http://localhost:5173` e `http://localhost:3000` por padrão. Pa
 
 ## Banco de dados compartilhado
 
-O arquivo [docs/script.sql](docs/script.sql) é uma cópia do [SQL da API Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1/blob/859459bed8e3de4152b6c93454874205a639f54a/docs/script.sql), na revisão `859459b`. Ele reúne o modelo das duas APIs, com 13 tabelas, dados de demonstração, funções e procedimentos organizados em packages, trigger de auditoria e consultas de verificação.
+O arquivo [docs/script.sql](docs/script.sql) é uma cópia do [SQL da API Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1/blob/fad4ab8/docs/script.sql), na revisão `fad4ab8`. Ele reúne o modelo das duas APIs, com 13 tabelas, dados de demonstração, funções e procedimentos organizados em packages, trigger de auditoria e consultas de verificação. O escape de caracteres de controle do JSON acompanha a correção da migration V5 de Java.
 
 Essa cópia também corresponde ao `script_bd.sql` da raiz do projeto Java. Ao atualizar o modelo compartilhado, mantenha as cópias sincronizadas. Use `docs/script.sql` como referência para preparar e consultar o modelo atual.
 
@@ -167,6 +167,10 @@ Antes de atualizar outro ambiente, confira o schema, os históricos Flyway/EF, a
 A evolução do schema na execução normal de Java está nas [migrations Flyway](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1/tree/develop/src/main/resources/db/migration). Elas criam a estrutura, convertem status e pagamentos para texto e carregam os dados de demonstração. As orientações para schemas existentes estão no [README de Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1#banco-de-dados-e-migrations).
 
 ### Oracle na FIAP e na Azure
+
+Para o novo ambiente **App Service**, as duas APIs serão publicadas na Azure e continuarão acessando o mesmo Oracle da FIAP pela rede. O banco não será copiado nem recriado. A conexão de cada Web App deve apontar para o mesmo schema; confira o histórico Flyway e EF antes de qualquer atualização. A conexão Azure → FIAP ainda precisa ser validada no ambiente publicado.
+
+O fluxo abaixo é o **deploy anterior de ACR + ACI**, separado da preparação App Service:
 
 O [script ACR + ACI de Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1/blob/develop/azure-acr-aci-setup.sh) cria um Oracle próprio e publica a API Java. O banco desse ambiente é separado do Oracle da FIAP, e esse script não publica a API .NET.
 
@@ -229,7 +233,47 @@ O health check faz `ping` no MongoDB e informa `Degraded` quando ele está indis
 5. Inicie a .NET com Oracle, MongoDB e chave pública configurados. Confira `/health`, faça login na Java e teste uma operação autenticada.
 6. Exporte o JSON e importe em MongoDB para a demonstração de Database.
 
-O script ACI legado do repositório Java ainda não provisiona a .NET nem o MongoDB, desabilita Flyway e não configura persistência do Oracle. Ele precisa dos ajustes de deploy antes de servir como entrega integrada. Não use H2 na execução final: ele fica restrito aos testes isolados de Java.
+O script ACI legado do repositório Java ainda não provisiona a .NET nem o MongoDB, desabilita Flyway e não configura persistência do Oracle. Não use esse script para o novo ambiente App Service. Não use H2 na execução final: ele fica restrito aos testes isolados de Java.
+
+## Inicialização no Azure App Service
+
+O script [scripts/start-appservice.sh](scripts/start-appservice.sh) prepara a execução nativa da API em **App Service Linux com .NET 9**, no ambiente **Production**. Esta etapa prepara a inicialização; o provisionamento completo e as pipelines ainda serão adicionados e validados. O ambiente publicado ainda não foi testado na Azure.
+
+Na raiz deste repositório, prepare o diretório de publicação:
+
+```bash
+dotnet publish ClyvoCare/ClyvoCare.API/ClyvoCare.API.csproj -c Release -o publish
+mkdir -p publish/scripts
+cp scripts/start-appservice.sh publish/scripts/
+```
+
+Publique o conteúdo de `publish`, incluindo `scripts/start-appservice.sh`, e configure o comando de inicialização do Web App:
+
+```bash
+bash /home/site/wwwroot/scripts/start-appservice.sh
+```
+
+Configure as variáveis nas **configurações de aplicativo** do Web App:
+
+| Variável | Valor |
+|---|---|
+| `ConnectionStrings__ClyvoCareOracle` | Conexão com o schema compartilhado, por exemplo `Data Source=oracle.fiap.com.br:1521/ORCL;User Id=SEU_RM;Password=SUA_SENHA;` |
+| `Mongo__ConnectionString` | URI do MongoDB remoto, incluindo autenticação; para Atlas, use a URI fornecida pelo serviço |
+| `Mongo__DatabaseName` | Nome do banco MongoDB preparado com os scripts da entrega |
+| `JWT_PUBLIC_KEY_BASE64` | Conteúdo completo do PEM público do mesmo par usado pela Java, codificado em Base64 em uma linha |
+| `Jwt__Issuer` | `clyvocare-api`, correspondente ao emissor Java |
+| `Cors__AllowedOrigins__0` | Origem HTTPS do frontend web; use índices seguintes para outras origens |
+| `AllowedHosts` | Hostname público do Web App, sem protocolo ou caminho |
+
+As quatro primeiras configurações são obrigatórias para o script. Use variáveis secretas para as credenciais no Azure DevOps e configurações protegidas no App Service. Não envie a chave privada para esta API e não inclua PEMs, credenciais ou configurações com segredos no Git ou nos artefatos. Base64 não é criptografia.
+
+O script grava somente a chave pública em um diretório temporário privado e define `Jwt__PublicKeyPath` com o caminho de arquivo esperado pela .NET. O valor Base64 é removido do ambiente do processo .NET. Uma falha na preparação remove o arquivo criado; após iniciar a aplicação, ele permanece no diretório temporário da instância. A validação existente da aplicação continua recusando PEM privado, inválido ou RSA com menos de 2048 bits. Mantenha a mesma pública nas reinicializações; trocas precisam acompanhar o par Java.
+
+A aplicação escuta HTTP na porta interna fornecida pela plataforma (`SERVER_PORT`, ou `PORT`, com padrão `8080`). O HTTPS público termina no proxy do App Service. O script habilita `AppService__Enabled`, e a aplicação processa `X-Forwarded-For` e `X-Forwarded-Proto` apenas de proxies em loopback ou nas redes privadas indicadas pela Microsoft, incluindo endereços IPv4 mapeados em IPv6. O processamento ocorre antes do redirecionamento HTTPS. O script desabilita a opção genérica `ASPNETCORE_FORWARDEDHEADERS_ENABLED`, que aceitaria qualquer proxy. Esse modo é específico para o App Service; outras topologias precisam da revisão das redes confiáveis.
+
+Os logs continuam no console e passam a usar `/home/LogFiles/clyvocare-.log`; `Logging__FilePath` permite configurar outro caminho gravável. A aplicação permanece em Production, com Swagger desabilitado. Confira `/health` e `/metrics` no ambiente publicado e teste os endpoints por um cliente HTTP. O health check também depende do Oracle, MongoDB e das URLs externas já configuradas; a inicialização do processo não comprova acesso aos bancos, permissão de escrita ou importação do dataset. Este script não cria coleções nem aplica migrations.
+
+Referências: [configuração ASP.NET Core no App Service](https://learn.microsoft.com/en-us/azure/app-service/configure-language-dotnetcore#detect-https-session) e [restrições dos cabeçalhos de proxies](https://learn.microsoft.com/en-us/aspnet/core/breaking-changes/8/forwarded-headers-unknown-proxies).
 
 ## Endpoints
 
@@ -414,7 +458,7 @@ Se apenas o MongoDB estiver indisponível, seu resultado é `Degraded`; o padrã
 
 ### Logs com Serilog
 
-O Serilog registra mensagens no console e em arquivos diários `logs/clyvocare-.log`, relativos à pasta de execução. O nível padrão é `Information`, com `Microsoft.AspNetCore` em `Warning`, conforme o `appsettings.json`.
+O Serilog registra mensagens no console e em arquivos diários `logs/clyvocare-.log`, relativos à pasta de execução. Para alterar o destino, configure `Logging__FilePath`; o script App Service usa `/home/LogFiles/clyvocare-.log`. O nível padrão é `Information`, com `Microsoft.AspNetCore` em `Warning`, conforme o `appsettings.json`.
 
 O middleware `UseSerilogRequestLogging()` registra requisições HTTP. O middleware de contexto usa o ID W3C da atividade atual em `HttpContext.TraceIdentifier` e no contexto do Serilog. Console e arquivo exibem esse valor em `TraceId`, permitindo localizar os logs da mesma requisição.
 
@@ -498,6 +542,10 @@ Na pasta `ClyvoCare`, execute:
 ```bash
 dotnet test ClyvoCare.sln
 ```
+
+Os testes de hospedagem verificam HTTPS encaminhado por proxies privados, recusa de cabeçalhos de proxies públicos, preservação da execução local e Swagger desabilitado em Production. Eles usam SQLite e dependências externas simuladas; não comprovam o funcionamento do proxy real da Azure.
+
+Na raiz do repositório, execute também `bash scripts/start-appservice.test.sh`. Esse teste usa uma chave temporária e simula o executável .NET para conferir configurações obrigatórias, recusa de Base64/PEM inválido ou privado, porta da plataforma, diretório de publicação, logs, reinicialização com a mesma pública e propagação de falhas. No Linux, verifica permissões `600` do PEM e `700` do diretório. Ele não conecta aos bancos nem provisiona recursos.
 
 Para gerar os arquivos de cobertura com `coverlet.collector`:
 

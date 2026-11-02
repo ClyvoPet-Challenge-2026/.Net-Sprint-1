@@ -1,3 +1,4 @@
+using System.Net;
 using System.Reflection;
 using ClyvoCare.API.Diagnostics;
 using ClyvoCare.API.Exceptions;
@@ -6,6 +7,7 @@ using ClyvoCare.API.Health;
 using ClyvoCare.API.Swagger;
 using ClyvoCare.API.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.OpenApi.Models;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
@@ -23,7 +25,7 @@ public partial class Program
             .ReadFrom.Configuration(context.Configuration)
             .Enrich.FromLogContext()
             .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] [TraceId={TraceId}] {Message:lj}{NewLine}{Exception}")
-            .WriteTo.File("logs/clyvocare-.log", rollingInterval: RollingInterval.Day,
+            .WriteTo.File(context.Configuration["Logging:FilePath"] ?? "logs/clyvocare-.log", rollingInterval: RollingInterval.Day,
                 outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} {Level:u3}] [TraceId={TraceId}] {Message:lj}{NewLine}{Exception}"));
 
         builder.Services.AddClyvoCareDbContext(builder.Configuration);
@@ -33,6 +35,19 @@ public partial class Program
 
         builder.Services.AddClyvoCareApplicationServices();
         builder.Services.AddClyvoCareAuthentication(builder.Configuration);
+
+        builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            if (!builder.Configuration.GetValue<bool>("AppService:Enabled")) return;
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+            // App Service proxies use private networks; keep unknown public proxies untrusted.
+            options.KnownNetworks.Add(new(IPAddress.Parse("10.0.0.0"), 8));
+            options.KnownNetworks.Add(new(IPAddress.Parse("172.16.0.0"), 12));
+            options.KnownNetworks.Add(new(IPAddress.Parse("192.168.0.0"), 16));
+            options.KnownNetworks.Add(new(IPAddress.Parse("::ffff:10.0.0.0"), 104));
+            options.KnownNetworks.Add(new(IPAddress.Parse("::ffff:172.16.0.0"), 108));
+            options.KnownNetworks.Add(new(IPAddress.Parse("::ffff:192.168.0.0"), 112));
+        });
 
         builder.Services.AddControllers().AddJsonOptions(options =>
             options.JsonSerializerOptions.Converters.Add(new AppointmentDateTimeConverter()));
@@ -117,6 +132,7 @@ public partial class Program
 
         var app = builder.Build();
 
+        app.UseForwardedHeaders();
         app.UseMiddleware<TraceContextMiddleware>();
         app.UseSerilogRequestLogging();
 

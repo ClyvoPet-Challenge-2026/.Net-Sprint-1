@@ -638,6 +638,11 @@ CREATE OR REPLACE PACKAGE BODY PKG_JSON AS
         v_out := REPLACE(v_out, CHR(13), '\r');
         v_out := REPLACE(v_out, CHR(10), '\n');
         v_out := REPLACE(v_out, CHR(9),  '\t');
+        FOR control_code IN 0 .. 31 LOOP
+            IF control_code NOT IN (9, 10, 13) THEN
+                v_out := REPLACE(v_out, CHR(control_code), '\u00' || LOWER(TO_CHAR(control_code, 'FM0X')));
+            END IF;
+        END LOOP;
         RETURN v_out;
 
     EXCEPTION
