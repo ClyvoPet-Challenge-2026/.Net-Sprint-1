@@ -13,6 +13,7 @@ pool:
 
 variables:
   azureServiceConnection: clyvocare-azure
+  azureResourceGroup: rm561584
 
 stages:
   - stage: CI

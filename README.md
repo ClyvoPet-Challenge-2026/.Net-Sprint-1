@@ -170,13 +170,7 @@ A evolução do schema na execução normal de Java está nas [migrations Flyway
 
 Para o novo ambiente **App Service**, as duas APIs serão publicadas na Azure e continuarão acessando o mesmo Oracle da FIAP pela rede. O banco não será copiado nem recriado. A conexão de cada Web App deve apontar para o mesmo schema; confira o histórico Flyway e EF antes de qualquer atualização. A conexão Azure → FIAP ainda precisa ser validada no ambiente publicado.
 
-O fluxo abaixo é o **deploy anterior de ACR + ACI**, separado da preparação App Service:
-
-O [script ACR + ACI de Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1/blob/develop/azure-acr-aci-setup.sh) cria um Oracle próprio e publica a API Java. O banco desse ambiente é separado do Oracle da FIAP, e esse script não publica a API .NET.
-
-Para a .NET acessar os registros desse ambiente, configure `Data Source=HOST_DO_ACI:1521/XEPDB1` e o mesmo schema usado por Java. No manifesto atual do script, a API Java se conecta como `system`, com a senha definida por `ORACLE_PWD`; o usuário `APP_DB_USER` criado pelo script é outro schema.
-
-O deploy ACI atual desabilita Flyway e usa Hibernate para criar ou atualizar tabelas. Consulte as diferenças e os comandos de provisionamento no [README de Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1#deploy-no-azure-acr--aci).
+O provisionamento compartilhado está no [README Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1#provisionamento-compartilhado). O grupo dedicado desta entrega é `rm561584`, com as duas APIs no mesmo plano App Service. Os scripts antigos de ACR + ACI foram removidos; a publicação atual usa os artefatos das pipelines.
 
 ## MongoDB, auditoria e exportação
 
@@ -233,7 +227,7 @@ O health check faz `ping` no MongoDB e informa `Degraded` quando ele está indis
 5. Inicie a .NET com Oracle, MongoDB e chave pública configurados. Confira `/health`, faça login na Java e teste uma operação autenticada.
 6. Exporte o JSON e importe em MongoDB para a demonstração de Database.
 
-O script ACI legado do repositório Java ainda não provisiona a .NET nem o MongoDB, desabilita Flyway e não configura persistência do Oracle. Não use esse script para o novo ambiente App Service. Não use H2 na execução final: ele fica restrito aos testes isolados de Java.
+O provisionamento App Service mantém a conexão com o Oracle da FIAP e recebe a URI do MongoDB Atlas preparado para a entrega. Não use H2 na execução final: ele fica restrito aos testes isolados de Java.
 
 ## Inicialização no Azure App Service
 
@@ -283,7 +277,7 @@ O CD executa automaticamente após sucesso do CI na master: baixa o artefato **d
 
 Configure o projeto privado **Sprint 4 – Azure DevOps**, a conexão de serviço ARM `clyvocare-azure` e a concessão do agente conforme o [README Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1#cicd-no-azure-devops). A conexão deve usar a assinatura do ambiente e escopo do grupo dedicado, preferencialmente com identidade federada. Autorize a pipeline .NET explicitamente. A existência de um pool não comprova minutos gratuitos; não compre paralelismo automaticamente.
 
-Conecte esta pipeline ao repositório GitHub e selecione `/azure-pipelines.yml`. Configure as variáveis não secretas `azureResourceGroup` e `dotnetWebAppName`. Se a conexão tiver outro nome, ajuste `azureServiceConnection` no YAML. As credenciais de Oracle, Atlas e RSA permanecem nas configurações protegidas do Web App; os testes do CI usam SQLite, RSA temporária e objetos simulados, sem credenciais reais. O provisionamento não prepara o Atlas nem suas coleções: confira os scripts MongoDB e os IPs de saída permitidos antes de publicar.
+Conecte esta pipeline ao repositório GitHub e selecione `/azure-pipelines.yml`. O YAML já define `azureResourceGroup: rm561584`; configure a variável não secreta `dotnetWebAppName`. Para outro ambiente, ajuste o grupo no YAML. Se a conexão tiver outro nome, ajuste `azureServiceConnection` no YAML. As credenciais de Oracle, Atlas e RSA permanecem nas configurações protegidas do Web App; os testes do CI usam SQLite, RSA temporária e objetos simulados, sem credenciais reais. O provisionamento não prepara o Atlas nem suas coleções: confira os scripts MongoDB e os IPs de saída permitidos antes de publicar.
 
 Prepare a branch `master` preservando o histórico da versão validada. Somente adicionar o YAML em `develop` ou `main` não ativa o gatilho obrigatório. Para o vídeo, demonstre uma alteração real no código, os testes e artefatos no Azure DevOps, o CD automático, a aplicação pública e o CRUD com `SELECT` no Oracle. A configuração do projeto, o acesso Basic do professor, o diagrama e o PDF continuam sendo necessários. A execução real da pipeline e do deploy ainda está pendente.
 
