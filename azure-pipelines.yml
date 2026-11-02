@@ -1,0 +1,86 @@
+trigger:
+  branches:
+    include:
+      - master
+
+pr:
+  branches:
+    include:
+      - master
+
+pool:
+  vmImage: ubuntu-24.04
+
+variables:
+  azureServiceConnection: clyvocare-azure
+
+stages:
+  - stage: CI
+    displayName: Build, test and publish artifact
+    jobs:
+      - job: Build
+        steps:
+          - checkout: self
+          - task: UseDotNet@2
+            inputs:
+              packageType: sdk
+              version: 9.0.x
+          - bash: |
+              set -euo pipefail
+              bash scripts/start-appservice.test.sh
+              node docs/mongodb/scripts.test.cjs
+              dotnet restore ClyvoCare/ClyvoCare.sln
+              dotnet test ClyvoCare/ClyvoCare.sln --no-restore --configuration Release \
+                --logger trx --results-directory "$TEST_RESULTS_DIRECTORY"
+              dotnet publish ClyvoCare/ClyvoCare.API/ClyvoCare.API.csproj --no-restore \
+                --configuration Release --output "$PACKAGE_DIRECTORY"
+              mkdir -p "$PACKAGE_DIRECTORY/scripts"
+              cp -- scripts/start-appservice.sh "$PACKAGE_DIRECTORY/scripts/"
+            displayName: Verify startup, MongoDB scripts and .NET
+            env:
+              TEST_RESULTS_DIRECTORY: $(Agent.TempDirectory)/test-results
+              PACKAGE_DIRECTORY: $(Build.ArtifactStagingDirectory)/package
+          - task: PublishTestResults@2
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFormat: VSTest
+              testResultsFiles: $(Agent.TempDirectory)/test-results/*.trx
+              failTaskOnFailedTests: true
+              failTaskOnMissingResultsFile: true
+          - task: ArchiveFiles@2
+            inputs:
+              rootFolderOrFile: $(Build.ArtifactStagingDirectory)/package
+              includeRootFolder: false
+              archiveType: zip
+              archiveFile: $(Build.ArtifactStagingDirectory)/dotnet.zip
+          - publish: $(Build.ArtifactStagingDirectory)/dotnet.zip
+            artifact: dotnet
+
+  - stage: CD
+    displayName: Deploy the CI artifact
+    dependsOn: CI
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/master'))
+    jobs:
+      - job: Deploy
+        steps:
+          - checkout: none
+          - download: current
+            artifact: dotnet
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                az webapp deploy --resource-group "$AZURE_RESOURCE_GROUP" --name "$DOTNET_WEBAPP_NAME" \
+                  --src-path "$PIPELINE_WORKSPACE/dotnet/dotnet.zip" --type zip --restart true \
+                  --track-status true --output none
+                hostname=$(az webapp show --resource-group "$AZURE_RESOURCE_GROUP" \
+                  --name "$DOTNET_WEBAPP_NAME" --query defaultHostName --output tsv)
+                curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 10 \
+                  --retry-max-time 180 --max-time 30 "https://$hostname/api/estados" --output /dev/null
+            env:
+              AZURE_RESOURCE_GROUP: $(azureResourceGroup)
+              DOTNET_WEBAPP_NAME: $(dotnetWebAppName)
+              PIPELINE_WORKSPACE: $(Pipeline.Workspace)

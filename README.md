@@ -237,7 +237,7 @@ O script ACI legado do repositório Java ainda não provisiona a .NET nem o Mong
 
 ## Inicialização no Azure App Service
 
-O script [scripts/start-appservice.sh](scripts/start-appservice.sh) prepara a execução nativa da API em **App Service Linux com .NET 9**, no ambiente **Production**. Esta etapa prepara a inicialização; o provisionamento completo e as pipelines ainda serão adicionados e validados. O ambiente publicado ainda não foi testado na Azure.
+O script [scripts/start-appservice.sh](scripts/start-appservice.sh) prepara a execução nativa da API em **App Service Linux com .NET 9**, no ambiente **Production**. O provisionamento compartilhado está no [repositório Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1#provisionamento-compartilhado); execute uma única vez para criar o plano e os dois Web Apps. A pipeline está descrita abaixo. A execução completa ainda precisa ser validada na Azure e no Azure DevOps.
 
 Na raiz deste repositório, prepare o diretório de publicação:
 
@@ -274,6 +274,20 @@ A aplicação escuta HTTP na porta interna fornecida pela plataforma (`SERVER_PO
 Os logs continuam no console e passam a usar `/home/LogFiles/clyvocare-.log`; `Logging__FilePath` permite configurar outro caminho gravável. A aplicação permanece em Production, com Swagger desabilitado. Confira `/health` e `/metrics` no ambiente publicado e teste os endpoints por um cliente HTTP. O health check também depende do Oracle, MongoDB e das URLs externas já configuradas; a inicialização do processo não comprova acesso aos bancos, permissão de escrita ou importação do dataset. Este script não cria coleções nem aplica migrations.
 
 Referências: [configuração ASP.NET Core no App Service](https://learn.microsoft.com/en-us/azure/app-service/configure-language-dotnetcore#detect-https-session) e [restrições dos cabeçalhos de proxies](https://learn.microsoft.com/en-us/aspnet/core/breaking-changes/8/forwarded-headers-unknown-proxies).
+
+### CI/CD no Azure DevOps
+
+A pipeline [azure-pipelines.yml](azure-pipelines.yml) executa a cada alteração na **master**, usando agente Linux `ubuntu-24.04` e SDK .NET 9. O CI verifica a inicialização e os scripts MongoDB, restaura os pacotes, executa os testes em Release, publica resultados TRX e gera o pacote de `dotnet publish`. O artefato `dotnet/dotnet.zip` fica no próprio Azure DevOps e contém a aplicação publicada e `scripts/start-appservice.sh`, sem pasta externa envolvendo o conteúdo.
+
+O CD executa automaticamente após sucesso do CI na master: baixa o artefato **da mesma execução**, publica por Azure CLI e verifica `GET /api/estados` por HTTPS. Ele não recompila a aplicação nem reaplica migrations. Pull requests para master executam o CI, sem CD. Erros de testes, publicação ou verificação HTTP fazem a pipeline falhar.
+
+Configure o projeto privado **Sprint 4 – Azure DevOps**, a conexão de serviço ARM `clyvocare-azure` e a concessão do agente conforme o [README Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1#cicd-no-azure-devops). A conexão deve usar a assinatura do ambiente e escopo do grupo dedicado, preferencialmente com identidade federada. Autorize a pipeline .NET explicitamente. A existência de um pool não comprova minutos gratuitos; não compre paralelismo automaticamente.
+
+Conecte esta pipeline ao repositório GitHub e selecione `/azure-pipelines.yml`. Configure as variáveis não secretas `azureResourceGroup` e `dotnetWebAppName`. Se a conexão tiver outro nome, ajuste `azureServiceConnection` no YAML. As credenciais de Oracle, Atlas e RSA permanecem nas configurações protegidas do Web App; os testes do CI usam SQLite, RSA temporária e objetos simulados, sem credenciais reais. O provisionamento não prepara o Atlas nem suas coleções: confira os scripts MongoDB e os IPs de saída permitidos antes de publicar.
+
+Prepare a branch `master` preservando o histórico da versão validada. Somente adicionar o YAML em `develop` ou `main` não ativa o gatilho obrigatório. Para o vídeo, demonstre uma alteração real no código, os testes e artefatos no Azure DevOps, o CD automático, a aplicação pública e o CRUD com `SELECT` no Oracle. A configuração do projeto, o acesso Basic do professor, o diagrama e o PDF continuam sendo necessários. A execução real da pipeline e do deploy ainda está pendente.
+
+Referências: [artefatos do Azure Pipelines](https://learn.microsoft.com/en-us/azure/devops/pipelines/artifacts/pipeline-artifacts) e [publicação de ZIP no App Service](https://learn.microsoft.com/en-us/azure/app-service/deploy-zip).
 
 ## Endpoints
 
