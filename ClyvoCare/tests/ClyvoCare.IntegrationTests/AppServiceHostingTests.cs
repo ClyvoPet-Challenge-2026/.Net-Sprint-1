@@ -1,6 +1,8 @@
 using System.Net;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace ClyvoCare.IntegrationTests;
 
@@ -47,15 +49,30 @@ public class AppServiceHostingTests
                 context.Response.Headers.Location.ToString());
     }
 
-    [Fact]
-    public async Task Production_DoesNotExposeDevelopmentSwagger()
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("false", false)]
+    [InlineData("true", true)]
+    public async Task Production_ExposesSwaggerOnlyWhenEnabled(string? setting, bool enabled)
     {
         using var factory = new CustomWebApplicationFactory();
-        using var application = factory.WithWebHostBuilder(builder => builder.UseEnvironment("Production"));
+        using var application = factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Production");
+            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
+                new Dictionary<string, string?> { ["Swagger:Enabled"] = setting }));
+        });
         using var client = application.CreateClient(new() { BaseAddress = new("https://localhost") });
 
         var response = await client.GetAsync("/swagger/v1/swagger.json");
+        var ui = await client.GetAsync("/");
+        var appointments = await client.GetAsync("/api/agendamentos");
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(enabled ? HttpStatusCode.OK : HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(enabled ? HttpStatusCode.OK : HttpStatusCode.NotFound, ui.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, appointments.StatusCode);
+        Assert.Equal("Production", application.Services.GetRequiredService<IHostEnvironment>().EnvironmentName);
+        if (enabled)
+            Assert.Contains("Swagger UI", await ui.Content.ReadAsStringAsync());
     }
 }

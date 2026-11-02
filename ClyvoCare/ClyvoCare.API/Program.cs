@@ -140,7 +140,7 @@ public partial class Program
 
         app.UseOpenTelemetryPrometheusScrapingEndpoint();
 
-        if (app.Environment.IsDevelopment())
+        if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Swagger:Enabled"))
         {
             app.UseSwagger();
             app.UseSwaggerUI(options =>

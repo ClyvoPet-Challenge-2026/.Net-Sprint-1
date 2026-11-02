@@ -108,7 +108,7 @@ Com o perfil `http`, os endereços são:
 | `http://localhost:5067/health` | Verificação do Oracle e dos serviços externos |
 | `http://localhost:5067/metrics` | Métricas no formato Prometheus |
 
-O Swagger fica na raiz e é habilitado somente em **Development**, ambiente definido pelos perfis de [launchSettings.json](ClyvoCare/ClyvoCare.API/Properties/launchSettings.json).
+O Swagger fica na raiz e é habilitado por padrão em **Development**, ambiente definido pelos perfis de [launchSettings.json](ClyvoCare/ClyvoCare.API/Properties/launchSettings.json). Para disponibilizá-lo em outro ambiente, configure `Swagger__Enabled=true`. Isso mantém o ambiente e a autenticação da API; as operações protegidas continuam exigindo JWT.
 
 Para usar HTTPS, execute `dotnet dev-certs https --trust` e depois `dotnet run --project ClyvoCare.API --launch-profile https`. Esse perfil usa `https://localhost:7197` e também configura a porta HTTP 5067; o middleware redireciona as chamadas HTTP para HTTPS.
 
@@ -309,7 +309,7 @@ O script grava somente a chave pública em um diretório temporário privado e d
 
 A aplicação escuta HTTP na porta interna fornecida pela plataforma (`SERVER_PORT`, ou `PORT`, com padrão `8080`). O HTTPS público termina no proxy do App Service. O script habilita `AppService__Enabled`, e a aplicação processa `X-Forwarded-For` e `X-Forwarded-Proto` apenas de proxies em loopback ou nas redes privadas indicadas pela Microsoft, incluindo endereços IPv4 mapeados em IPv6. O processamento ocorre antes do redirecionamento HTTPS. O script desabilita a opção genérica `ASPNETCORE_FORWARDEDHEADERS_ENABLED`, que aceitaria qualquer proxy. Esse modo é específico para o App Service; outras topologias precisam da revisão das redes confiáveis.
 
-Os logs continuam no console e passam a usar `/home/LogFiles/clyvocare-.log`; `Logging__FilePath` permite configurar outro caminho gravável. A aplicação permanece em Production, com Swagger desabilitado. Confira `/health` e `/metrics` no ambiente publicado e teste os endpoints por um cliente HTTP. O health check também depende do Oracle, MongoDB e das URLs externas já configuradas; a inicialização do processo não comprova acesso aos bancos, permissão de escrita ou importação do dataset. Este script não cria coleções nem aplica migrations.
+Os logs continuam no console e passam a usar `/home/LogFiles/clyvocare-.log`; `Logging__FilePath` permite configurar outro caminho gravável. A aplicação permanece em Production. O provisionamento compartilhado configura `Swagger__Enabled=true` para disponibilizar a interface na raiz HTTPS e o contrato em `/swagger/v1/swagger.json`. Sem essa configuração, o Swagger permanece desabilitado em Production. Confira também `/health` e `/metrics` no ambiente publicado. O health check também depende do Oracle, MongoDB e das URLs externas já configuradas; a inicialização do processo não comprova acesso aos bancos, permissão de escrita ou importação do dataset. Este script não cria coleções nem aplica migrations.
 
 Referências: [configuração ASP.NET Core no App Service](https://learn.microsoft.com/en-us/azure/app-service/configure-language-dotnetcore#detect-https-session) e [restrições dos cabeçalhos de proxies](https://learn.microsoft.com/en-us/aspnet/core/breaking-changes/8/forwarded-headers-unknown-proxies).
 
@@ -595,7 +595,7 @@ Na pasta `ClyvoCare`, execute:
 dotnet test ClyvoCare.sln
 ```
 
-Os testes de hospedagem verificam HTTPS encaminhado por proxies privados, recusa de cabeçalhos de proxies públicos, preservação da execução local e Swagger desabilitado em Production. Eles usam SQLite e dependências externas simuladas; não comprovam o funcionamento do proxy real da Azure.
+Os testes de hospedagem verificam HTTPS encaminhado por proxies privados, recusa de cabeçalhos de proxies públicos, preservação da execução local e Swagger desabilitado por padrão ou habilitado explicitamente em Production, mantendo a autenticação. Eles usam SQLite e dependências externas simuladas; não comprovam o funcionamento do proxy real da Azure.
 
 Na raiz do repositório, execute também `bash scripts/start-appservice.test.sh`. Esse teste usa uma chave temporária e simula o executável .NET para conferir configurações obrigatórias, recusa de Base64/PEM inválido ou privado, porta da plataforma, diretório de publicação, logs, reinicialização com a mesma pública e propagação de falhas. No Linux, verifica permissões `600` do PEM e `700` do diretório. Ele não conecta aos bancos nem provisiona recursos.
 
