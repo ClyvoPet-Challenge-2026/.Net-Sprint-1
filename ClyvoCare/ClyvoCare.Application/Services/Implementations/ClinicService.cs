@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using ClyvoCare.Application.Diagnostics;
 using ClyvoCare.Application.DTOs;
 using ClyvoCare.Application.Repositories;
 using ClyvoCare.Application.Services.Interfaces;
@@ -19,6 +20,7 @@ public sealed class ClinicService(
     /// <inheritdoc />
     public IReadOnlyList<ClinicResponse> GetAll()
     {
+        using var activity = ApplicationTelemetry.Source.StartActivity("ClinicService.GetAll");
         return clinicRepository
             .GetAllWithCity()
             .Select(ClinicResponse.FromDomain)
@@ -28,6 +30,7 @@ public sealed class ClinicService(
     /// <inheritdoc />
     public ClinicResponse? GetById(long id)
     {
+        using var activity = ApplicationTelemetry.Source.StartActivity("ClinicService.GetById");
         var clinic = clinicRepository.GetByIdWithCity(id);
         return clinic is null ? null : ClinicResponse.FromDomain(clinic);
     }
@@ -35,6 +38,7 @@ public sealed class ClinicService(
     /// <inheritdoc />
     public IReadOnlyList<ClinicResponse> GetByCityId(long cityId)
     {
+        using var activity = ApplicationTelemetry.Source.StartActivity("ClinicService.GetByCityId");
         EnsureCityExists(cityId);
 
         return clinicRepository
@@ -46,6 +50,7 @@ public sealed class ClinicService(
     /// <inheritdoc />
     public IReadOnlyList<ClinicResponse> Search(string? name, string? cnpj)
     {
+        using var activity = ApplicationTelemetry.Source.StartActivity("ClinicService.Search");
         return clinicRepository
             .SearchWithCity(name, cnpj)
             .Select(ClinicResponse.FromDomain)
@@ -55,6 +60,7 @@ public sealed class ClinicService(
     /// <inheritdoc />
     public ClinicResponse Create(ClinicRequest request)
     {
+        using var activity = ApplicationTelemetry.Source.StartActivity("ClinicService.Create");
         ArgumentNullException.ThrowIfNull(request);
 
         EnsureCityExists(request.CityId);
@@ -70,6 +76,7 @@ public sealed class ClinicService(
 
     public PagedResult<ClinicResponse> SearchPage(ClinicSearchRequest request)
     {
+        using var activity = ApplicationTelemetry.Source.StartActivity("ClinicService.SearchPage");
         ArgumentNullException.ThrowIfNull(request);
         var search = request.Normalize();
         var page = clinicRepository.SearchPage(search);
@@ -80,6 +87,7 @@ public sealed class ClinicService(
     /// <inheritdoc />
     public ClinicResponse Update(long id, ClinicRequest request)
     {
+        using var activity = ApplicationTelemetry.Source.StartActivity("ClinicService.Update");
         ArgumentNullException.ThrowIfNull(request);
 
         var clinic = clinicRepository.GetById(id)
@@ -99,6 +107,7 @@ public sealed class ClinicService(
     /// <inheritdoc />
     public bool Delete(long id)
     {
+        using var activity = ApplicationTelemetry.Source.StartActivity("ClinicService.Delete");
         var deleted = clinicRepository.Delete(id);
         if (deleted) Audit(id, "DELETE");
         return deleted;

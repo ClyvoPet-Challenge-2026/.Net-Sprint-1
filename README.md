@@ -416,9 +416,9 @@ Se apenas o MongoDB estiver indisponível, seu resultado é `Degraded`; o padrã
 
 O Serilog registra mensagens no console e em arquivos diários `logs/clyvocare-.log`, relativos à pasta de execução. O nível padrão é `Information`, com `Microsoft.AspNetCore` em `Warning`, conforme o `appsettings.json`.
 
-O middleware `UseSerilogRequestLogging()` registra requisições HTTP. O tratamento global de exceções registra a mensagem e um identificador obtido de `Activity.Current?.Id`, usando `HttpContext.TraceIdentifier` como alternativa.
+O middleware `UseSerilogRequestLogging()` registra requisições HTTP. O middleware de contexto usa o ID W3C da atividade atual em `HttpContext.TraceIdentifier` e no contexto do Serilog. Console e arquivo exibem esse valor em `TraceId`, permitindo localizar os logs da mesma requisição.
 
-Em Development, respostas de erro tratadas pelo handler incluem `traceId` com o `HttpContext.TraceIdentifier`. A API não tem middleware próprio para receber e devolver `X-Correlation-ID`; o identificador de atividade usado no log pode ser diferente desse `traceId` da resposta.
+A API devolve `X-Trace-Id` nas respostas. O mesmo valor aparece em `traceId` nos `ProblemDetails` do tratamento global e do MVC, incluindo validação automática, tanto em Development quanto em Production. Exceções inesperadas continuam com mensagem pública genérica. O CORS permite `traceparent`/`tracestate` e expõe `X-Trace-Id` às origens autorizadas.
 
 ### Métricas com OpenTelemetry e Prometheus
 
@@ -431,7 +431,40 @@ curl -i http://localhost:5067/health
 curl -i http://localhost:5067/metrics
 ```
 
-O OpenTelemetry está configurado com `WithMetrics`. Ainda não há `WithTracing` nem um exportador de traces distribuídos configurado nesta API.
+### Tracing distribuído
+
+O OpenTelemetry também usa `WithTracing`, com instrumentação de ASP.NET Core e HttpClient e fontes próprias `ClyvoCare.Application` e `ClyvoCare.Infrastructure`. Uma requisição pode mostrar, por exemplo, `GET api/clinicas` → `ClinicService.SearchPage` → `ClinicRepository.SearchPage`. Serviços de estados, cidades e agendamentos, repositórios compartilhados, consulta de identidade, auditoria e ping MongoDB também têm spans.
+
+O contexto W3C recebido em `traceparent` é propagado pelas camadas e por chamadas HTTP de saída. `tracestate` é preservado. Sem um parent válido, o servidor gera um novo trace; o header `X-Trace-Id` não é usado como entrada. O sampling padrão respeita o parent: um trace recebido como não amostrado mantém a correlação, sem forçar sua exportação. Os scopes são encerrados ao retornar ou lançar uma exceção, restaurando a atividade anterior.
+
+Os spans manuais registram nomes de operações, sem parâmetros SQL, IDs de contas, dados das clínicas, corpos, tokens, chaves ou connection strings. Valores da query HTTP de entrada e a URL completa de saída são removidos dos tags. Falhas tratadas do MongoDB marcam o span como erro, com o tipo da exceção; não são copiados sua mensagem ou stack trace. A auditoria mantém o mesmo trace ID, sem desfazer a gravação Oracle em caso de falha.
+
+O tracing deste repositório cobre a .NET e a propagação de seu contexto HTTP. As APIs compartilham Oracle, mas esse compartilhamento não cria uma chamada HTTP nem um trace contínuo entre login Java e uma requisição .NET posterior. Outros serviços precisam participar do mesmo contexto para aparecer na mesma árvore.
+
+### Enviar traces para um coletor
+
+Não é necessário configurar um coletor para iniciar a API, usar os endpoints ou correlacionar logs e erros. Sem `OTEL_EXPORTER_OTLP_ENDPOINT`, não há exportação externa nem armazenamento dos traces para consulta posterior; `/metrics` continua disponível para Prometheus.
+
+Para enviar traces a um coletor OTLP já disponível, defina as variáveis no terminal ou no ambiente do container antes de iniciar a API. Exemplo em Bash ou Git Bash, com OTLP por HTTP/protobuf:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT='http://localhost:4318'
+export OTEL_EXPORTER_OTLP_PROTOCOL='http/protobuf'
+dotnet run --project ClyvoCare.API --launch-profile http
+```
+
+Execute o comando acima na pasta `ClyvoCare`. No PowerShell, use `$env:OTEL_EXPORTER_OTLP_ENDPOINT = 'http://localhost:4318'` e `$env:OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf'`. O endpoint é a URL base: o exportador acrescenta `/v1/traces`. Se o coletor recebe gRPC, use protocolo `grpc` e a porta correspondente, normalmente 4317. Dentro de containers separados, substitua `localhost` pelo endereço acessível do coletor. O serviço aparece como `ClyvoCare.API`.
+
+O exportador usa envio em lotes e as opções padrão do [exportador OTLP .NET](https://github.com/open-telemetry/opentelemetry-dotnet/blob/core-1.18.0/src/OpenTelemetry.Exporter.OpenTelemetryProtocol/README.md), incluindo `OTEL_EXPORTER_OTLP_HEADERS` e `OTEL_EXPORTER_OTLP_TIMEOUT` quando necessárias. Configure autenticação por segredo do ambiente. Falhas de exportação não alteram a resposta de negócio; o envio não garante retenção durante indisponibilidade. Instalação, armazenamento e interface de consulta do coletor fazem parte do ambiente de observabilidade.
+
+Exemplo para conferir a propagação, com a API iniciada:
+
+```bash
+curl -i 'http://localhost:5067/api/clinicas?pageSize=1' \
+  -H 'traceparent: 00-0123456789abcdef0123456789abcdef-0123456789abcdef-01'
+```
+
+O header `X-Trace-Id` da resposta deve conter `0123456789abcdef0123456789abcdef`. Com exportação habilitada, procure esse ID no coletor e confira os spans de aplicação e persistência. Nos testes automatizados, a árvore é capturada em memória e o transporte OTLP por HTTP/protobuf usa um receptor TCP local temporário. Isso valida o envio, sem comprovar um deploy de Jaeger, Grafana ou outro serviço na nuvem.
 
 ## Tratamento de erros
 

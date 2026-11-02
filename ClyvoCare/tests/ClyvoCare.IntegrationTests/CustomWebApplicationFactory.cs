@@ -14,6 +14,10 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using Microsoft.IdentityModel.Tokens;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using OpenTelemetry;
+using OpenTelemetry.Trace;
 
 namespace ClyvoCare.IntegrationTests;
 
@@ -24,6 +28,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     private readonly string _keyDirectory = Path.Combine(Path.GetTempPath(), "clyvocare-test-" + Guid.NewGuid());
     private bool _disposed;
     public TestClinicAuditRepository Audit { get; } = new();
+    public ConcurrentQueue<Activity> Traces { get; } = new();
 
     public CustomWebApplicationFactory()
     {
@@ -55,11 +60,14 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             {
                 ["Jwt:PublicKeyPath"] = Path.Combine(_keyDirectory, "public.pem"),
                 ["Mongo:ConnectionString"] = "mongodb://localhost:27017",
-                ["Mongo:DatabaseName"] = "clyvocare-tests"
+                ["Mongo:DatabaseName"] = "clyvocare-tests",
+                ["OTEL_EXPORTER_OTLP_ENDPOINT"] = null
             }));
 
         builder.ConfigureServices(services =>
         {
+            services.AddOpenTelemetry().WithTracing(tracing =>
+                tracing.AddProcessor(new SimpleActivityExportProcessor(new TestTraceExporter(Traces))));
             services.RemoveAll<IClinicAuditRepository>();
             services.AddSingleton<IClinicAuditRepository>(Audit);
             var descriptorsToRemove = services
@@ -132,6 +140,15 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     {
         public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context,
             CancellationToken cancellationToken = default) => Task.FromResult(HealthCheckResult.Healthy());
+    }
+
+    private sealed class TestTraceExporter(ConcurrentQueue<Activity> traces) : BaseExporter<Activity>
+    {
+        public override ExportResult Export(in Batch<Activity> batch)
+        {
+            foreach (var activity in batch) traces.Enqueue(activity);
+            return ExportResult.Success;
+        }
     }
 }
 

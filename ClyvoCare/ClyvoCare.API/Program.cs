@@ -1,4 +1,5 @@
 using System.Reflection;
+using ClyvoCare.API.Diagnostics;
 using ClyvoCare.API.Exceptions;
 using ClyvoCare.API.Extensions;
 using ClyvoCare.API.Health;
@@ -21,8 +22,9 @@ public partial class Program
         builder.Host.UseSerilog((context, configuration) => configuration
             .ReadFrom.Configuration(context.Configuration)
             .Enrich.FromLogContext()
-            .WriteTo.Console()
-            .WriteTo.File("logs/clyvocare-.log", rollingInterval: RollingInterval.Day));
+            .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] [TraceId={TraceId}] {Message:lj}{NewLine}{Exception}")
+            .WriteTo.File("logs/clyvocare-.log", rollingInterval: RollingInterval.Day,
+                outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} {Level:u3}] [TraceId={TraceId}] {Message:lj}{NewLine}{Exception}"));
 
         builder.Services.AddClyvoCareDbContext(builder.Configuration);
         builder.Services.AddClyvoCareMongo(builder.Configuration);
@@ -38,7 +40,8 @@ public partial class Program
         builder.Services.AddEndpointsApiExplorer();
 
         builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
-        builder.Services.AddProblemDetails();
+        builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
+            context.ProblemDetails.Extensions["traceId"] = context.HttpContext.TraceIdentifier);
 
         var corsAllowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
             ?? [];
@@ -50,7 +53,8 @@ public partial class Program
                 policy
                     .WithOrigins(corsAllowedOrigins)
                     .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-                    .WithHeaders("Authorization", "Content-Type");
+                    .WithHeaders("Authorization", "Content-Type", "traceparent", "tracestate")
+                    .WithExposedHeaders("X-Trace-Id");
             });
         });
 
@@ -70,6 +74,8 @@ public partial class Program
                         "System.Runtime")
                     .AddPrometheusExporter();
             });
+
+        builder.Services.AddClyvoCareTracing(builder.Configuration);
 
         var oracleConnectionString = builder.Configuration.GetConnectionString("ClyvoCareOracle")
             ?? throw new InvalidOperationException("Connection string 'ClyvoCareOracle' não encontrada.");
@@ -111,6 +117,7 @@ public partial class Program
 
         var app = builder.Build();
 
+        app.UseMiddleware<TraceContextMiddleware>();
         app.UseSerilogRequestLogging();
 
         app.UseExceptionHandler();

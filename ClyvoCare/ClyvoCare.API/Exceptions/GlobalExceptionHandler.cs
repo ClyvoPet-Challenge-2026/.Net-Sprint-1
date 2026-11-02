@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ClyvoCare.Domain.Exceptions;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
@@ -13,11 +14,16 @@ public sealed class GlobalExceptionHandler(
         Exception exception,
         CancellationToken cancellationToken)
     {
-        var traceId = System.Diagnostics.Activity.Current?.Id ?? httpContext.TraceIdentifier;
+        var traceId = httpContext.TraceIdentifier;
 
         logger.LogError(exception, "Exceção não tratada: {Message} : TraceId {TraceId}", exception.Message, traceId);
 
         var (statusCode, title, detail) = MapException(exception, environment);
+        if (statusCode >= StatusCodes.Status500InternalServerError)
+        {
+            Activity.Current?.SetStatus(ActivityStatusCode.Error);
+            Activity.Current?.SetTag("error.type", exception.GetType().FullName);
+        }
 
         httpContext.Response.StatusCode = statusCode;
         httpContext.Response.ContentType = "application/problem+json";
@@ -31,10 +37,7 @@ public sealed class GlobalExceptionHandler(
             Instance = httpContext.Request.Path
         };
 
-        if (environment.IsDevelopment())
-        {
-            problem.Extensions["traceId"] = httpContext.TraceIdentifier;
-        }
+        problem.Extensions["traceId"] = traceId;
 
         await httpContext.Response.WriteAsJsonAsync(problem, cancellationToken);
         return true;

@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using ClyvoCare.Infrastructure.Diagnostics;
 using ClyvoCare.Application.Repositories;
 using ClyvoCare.Application.DTOs;
 using ClyvoCare.Domain.Entities;
@@ -13,6 +15,7 @@ public sealed class ClinicRepository(ClyvoCareContext context)
 {
     public IReadOnlyList<Clinic> GetAllWithCity()
     {
+        using var activity = PersistenceTelemetry.Source.StartActivity("ClinicRepository.GetAllWithCity", ActivityKind.Client);
         return Context.Set<Clinic>()
             .Include(c => c.City)
             .ThenInclude(city => city.State)
@@ -23,6 +26,7 @@ public sealed class ClinicRepository(ClyvoCareContext context)
 
     public Clinic? GetByIdWithCity(long id)
     {
+        using var activity = PersistenceTelemetry.Source.StartActivity("ClinicRepository.GetByIdWithCity", ActivityKind.Client);
         return Context.Set<Clinic>()
             .Include(c => c.City)
             .ThenInclude(city => city.State)
@@ -32,6 +36,7 @@ public sealed class ClinicRepository(ClyvoCareContext context)
 
     public IReadOnlyList<Clinic> GetByCityIdWithCity(long cityId)
     {
+        using var activity = PersistenceTelemetry.Source.StartActivity("ClinicRepository.GetByCityIdWithCity", ActivityKind.Client);
         return Context.Set<Clinic>()
             .Include(c => c.City)
             .ThenInclude(city => city.State)
@@ -43,11 +48,13 @@ public sealed class ClinicRepository(ClyvoCareContext context)
 
     public IReadOnlyList<Clinic> SearchWithCity(string? name, string? cnpj)
     {
+        using var activity = PersistenceTelemetry.Source.StartActivity("ClinicRepository.SearchWithCity", ActivityKind.Client);
         return Filter(name, cnpj, null).OrderBy(c => c.Name).ThenBy(c => c.Id).ToList();
     }
 
     public (IReadOnlyList<Clinic> Items, int TotalCount) SearchPage(ClinicSearchRequest request)
     {
+        using var activity = PersistenceTelemetry.Source.StartActivity("ClinicRepository.SearchPage", ActivityKind.Client);
         var query = Filter(request.Name, request.Cnpj, request.CityId);
         var total = query.Count();
         var ordered = (request.SortBy, request.SortDirection) switch
@@ -93,6 +100,7 @@ public sealed class ClinicRepository(ClyvoCareContext context)
 
     public bool ExistsByCnpj(string cnpj, long? excludeId = null)
     {
+        using var activity = PersistenceTelemetry.Source.StartActivity("ClinicRepository.ExistsByCnpj", ActivityKind.Client);
         ArgumentException.ThrowIfNullOrWhiteSpace(cnpj);
 
         var cnpjTrimmed = cnpj.Trim();

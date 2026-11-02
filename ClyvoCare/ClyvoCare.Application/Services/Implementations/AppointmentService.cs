@@ -1,3 +1,4 @@
+using ClyvoCare.Application.Diagnostics;
 using ClyvoCare.Application.DTOs;
 using ClyvoCare.Application.Repositories;
 using ClyvoCare.Application.Services.Interfaces;
@@ -11,6 +12,7 @@ public sealed class AppointmentService(IAppointmentRepository appointments, IRep
 {
     public AppointmentResponse Create(AppointmentRequest request)
     {
+        using var activity = ApplicationTelemetry.Source.StartActivity("AppointmentService.Create");
         ArgumentNullException.ThrowIfNull(request);
         var appointment = Appointment.Create(request.PetId, request.ClinicId, request.EventType,
             request.ScheduledAt, request.Reason, request.Notes, clock.GetUtcNow());
@@ -26,6 +28,7 @@ public sealed class AppointmentService(IAppointmentRepository appointments, IRep
 
     public AppointmentResponse? GetById(long id)
     {
+        using var activity = ApplicationTelemetry.Source.StartActivity("AppointmentService.GetById");
         if (id <= 0) throw new ArgumentOutOfRangeException(nameof(id), "Id must be positive.");
         var appointment = appointments.GetById(id, currentUser.IsAdmin ? null : currentUser.OwnerId);
         return appointment is null ? null : AppointmentResponse.FromDomain(appointment);
@@ -33,6 +36,7 @@ public sealed class AppointmentService(IAppointmentRepository appointments, IRep
 
     public PagedResult<AppointmentResponse> Search(long? petId, int pageNumber, int pageSize)
     {
+        using var activity = ApplicationTelemetry.Source.StartActivity("AppointmentService.Search");
         if (petId <= 0) throw new ArgumentOutOfRangeException(nameof(petId), "PetId must be positive.");
         if (pageNumber < 1 || pageSize is < 1 or > 100 || (long)(pageNumber - 1) * pageSize > int.MaxValue)
             throw new ArgumentException("PageNumber must be positive, PageSize must be 1–100 and the offset must fit an integer.");

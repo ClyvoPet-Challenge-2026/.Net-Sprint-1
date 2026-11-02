@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using ClyvoCare.Infrastructure.Diagnostics;
 using ClyvoCare.Application.DTOs;
 using ClyvoCare.Application.Repositories;
 using Microsoft.Extensions.Logging;
@@ -11,6 +13,7 @@ public sealed class ClinicAuditRepository(IMongoDatabase database,
 {
     public bool TryAdd(ClinicAuditEntry entry)
     {
+        using var activity = PersistenceTelemetry.Source.StartActivity("ClinicAuditRepository.TryAdd", ActivityKind.Client);
         try
         {
             database.GetCollection<BsonDocument>("ClinicAuditLogs").InsertOne(new BsonDocument
@@ -25,6 +28,8 @@ public sealed class ClinicAuditRepository(IMongoDatabase database,
         }
         catch (Exception exception) when (exception is MongoException or TimeoutException)
         {
+            activity?.SetStatus(ActivityStatusCode.Error);
+            activity?.SetTag("error.type", exception.GetType().FullName);
             // Oracle has already committed; never expose connection details or undo that write.
             logger.LogWarning("Clinic audit unavailable for {Operation} on clinic {ClinicId} by actor {ActorId}. Oracle changes remain committed.",
                 entry.Operation, entry.ClinicId, entry.ActorId);

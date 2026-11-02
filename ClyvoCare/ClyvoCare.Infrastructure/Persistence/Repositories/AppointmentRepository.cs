@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using ClyvoCare.Infrastructure.Diagnostics;
 using ClyvoCare.Application.Repositories;
 using ClyvoCare.Domain.Entities;
 using ClyvoCare.Domain.Exceptions;
@@ -9,6 +11,7 @@ public sealed class AppointmentRepository(ClyvoCareContext context) : IAppointme
 {
     public Appointment Add(Appointment appointment)
     {
+        using var activity = PersistenceTelemetry.Source.StartActivity("AppointmentRepository.Add", ActivityKind.Client);
         context.Appointments.Add(appointment);
         try
         {
@@ -25,13 +28,21 @@ public sealed class AppointmentRepository(ClyvoCareContext context) : IAppointme
         return appointment;
     }
 
-    public Appointment? GetById(long id, long? ownerId) => VisibleTo(ownerId).FirstOrDefault(a => a.Id == id);
+    public Appointment? GetById(long id, long? ownerId)
+    {
+        using var activity = PersistenceTelemetry.Source.StartActivity("AppointmentRepository.GetById", ActivityKind.Client);
+        return VisibleTo(ownerId).FirstOrDefault(a => a.Id == id);
+    }
 
-    public bool ExistsAt(long petId, DateTime eventDate) =>
-        context.Appointments.Count(a => a.PetId == petId && a.EventDate == eventDate) > 0;
+    public bool ExistsAt(long petId, DateTime eventDate)
+    {
+        using var activity = PersistenceTelemetry.Source.StartActivity("AppointmentRepository.ExistsAt", ActivityKind.Client);
+        return context.Appointments.Count(a => a.PetId == petId && a.EventDate == eventDate) > 0;
+    }
 
     public (IReadOnlyList<Appointment> Items, int TotalCount) Search(long? ownerId, long? petId, int pageNumber, int pageSize)
     {
+        using var activity = PersistenceTelemetry.Source.StartActivity("AppointmentRepository.Search", ActivityKind.Client);
         var query = VisibleTo(ownerId);
         if (petId.HasValue) query = query.Where(a => a.PetId == petId.Value);
         var total = query.Count();

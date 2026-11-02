@@ -1,3 +1,4 @@
+using ClyvoCare.Application.Diagnostics;
 using ClyvoCare.Application.DTOs;
 using ClyvoCare.Application.Repositories;
 using ClyvoCare.Application.Services.Interfaces;
@@ -13,6 +14,7 @@ public sealed class StateService(IRepository<State> stateRepository) : IStateSer
     /// <inheritdoc />
     public IReadOnlyList<StateResponse> GetAll()
     {
+        using var activity = ApplicationTelemetry.Source.StartActivity("StateService.GetAll");
         return stateRepository
             .GetAll()
             .Select(StateResponse.FromDomain)
@@ -22,6 +24,7 @@ public sealed class StateService(IRepository<State> stateRepository) : IStateSer
     /// <inheritdoc />
     public StateResponse? GetById(long id)
     {
+        using var activity = ApplicationTelemetry.Source.StartActivity("StateService.GetById");
         var state = stateRepository.GetById(id);
         return state is null ? null : StateResponse.FromDomain(state);
     }
