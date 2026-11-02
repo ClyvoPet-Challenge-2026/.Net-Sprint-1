@@ -80,7 +80,7 @@ stages:
                   --track-status true --output none
                 hostname=$(az webapp show --resource-group "$AZURE_RESOURCE_GROUP" \
                   --name "$DOTNET_WEBAPP_NAME" --query defaultHostName --output tsv)
-                curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 10 \
+                curl --fail --silent --show-error --location --max-redirs 3 --retry 10 --retry-all-errors --retry-delay 10 \
                   --retry-max-time 180 --max-time 30 "https://$hostname/api/estados" --output /dev/null
             env:
               AZURE_RESOURCE_GROUP: $(azureResourceGroup)

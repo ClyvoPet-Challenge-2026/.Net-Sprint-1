@@ -15,10 +15,18 @@ public class AppServiceHostingTests
     [InlineData("::ffff:10.1.2.3", true, true)]
     [InlineData("::ffff:172.16.1.2", true, true)]
     [InlineData("::ffff:192.168.1.2", true, true)]
+    [InlineData("169.254.130.1", true, true)]
+    [InlineData("169.254.129.1", true, true)]
+    [InlineData("::ffff:169.254.130.1", true, true)]
+    [InlineData("::ffff:169.254.129.1", true, true)]
+    [InlineData("169.253.255.255", true, false)]
+    [InlineData("169.255.0.1", true, false)]
     [InlineData("203.0.113.10", true, false)]
     [InlineData("::ffff:203.0.113.10", true, false)]
     [InlineData("2001:db8::1", true, false)]
     [InlineData("10.1.2.3", false, false)]
+    [InlineData("169.254.130.1", false, false)]
+    [InlineData("::ffff:169.254.130.1", false, false)]
     public async Task ForwardedHttps_OnlyTrustedAppServiceProxyAvoidsRedirect(string proxy,
         bool enabled, bool trusted)
     {

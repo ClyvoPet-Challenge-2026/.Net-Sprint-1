@@ -40,13 +40,15 @@ public partial class Program
         {
             if (!builder.Configuration.GetValue<bool>("AppService:Enabled")) return;
             options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-            // App Service proxies use private networks; keep unknown public proxies untrusted.
+            // App Service proxies use private and link-local networks; keep public proxies untrusted.
             options.KnownNetworks.Add(new(IPAddress.Parse("10.0.0.0"), 8));
             options.KnownNetworks.Add(new(IPAddress.Parse("172.16.0.0"), 12));
             options.KnownNetworks.Add(new(IPAddress.Parse("192.168.0.0"), 16));
+            options.KnownNetworks.Add(new(IPAddress.Parse("169.254.0.0"), 16));
             options.KnownNetworks.Add(new(IPAddress.Parse("::ffff:10.0.0.0"), 104));
             options.KnownNetworks.Add(new(IPAddress.Parse("::ffff:172.16.0.0"), 108));
             options.KnownNetworks.Add(new(IPAddress.Parse("::ffff:192.168.0.0"), 112));
+            options.KnownNetworks.Add(new(IPAddress.Parse("::ffff:169.254.0.0"), 112));
         });
 
         builder.Services.AddControllers().AddJsonOptions(options =>
