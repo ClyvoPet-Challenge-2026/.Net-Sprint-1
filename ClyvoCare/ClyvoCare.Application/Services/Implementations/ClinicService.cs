@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ClyvoCare.Application.DTOs;
 using ClyvoCare.Application.Repositories;
 using ClyvoCare.Application.Services.Interfaces;
@@ -10,7 +11,10 @@ namespace ClyvoCare.Application.Services.Implementations;
 /// </summary>
 public sealed class ClinicService(
     IClinicRepository clinicRepository,
-    IRepository<City> cityRepository) : IClinicService
+    IRepository<City> cityRepository,
+    IClinicAuditRepository auditRepository,
+    ICurrentUser currentUser,
+    TimeProvider timeProvider) : IClinicService
 {
     /// <inheritdoc />
     public IReadOnlyList<ClinicResponse> GetAll()
@@ -58,6 +62,7 @@ public sealed class ClinicService(
 
         var clinic = request.ToDomain();
         var saved = clinicRepository.Add(clinic);
+        Audit(saved.Id, "CREATE");
 
         var withCity = clinicRepository.GetByIdWithCity(saved.Id)!;
         return ClinicResponse.FromDomain(withCity);
@@ -85,6 +90,7 @@ public sealed class ClinicService(
 
         clinic.Update(request.Name, request.Cnpj, request.CityId, request.Phone);
         clinicRepository.Update(clinic);
+        Audit(id, "UPDATE");
 
         var withCity = clinicRepository.GetByIdWithCity(id)!;
         return ClinicResponse.FromDomain(withCity);
@@ -93,8 +99,14 @@ public sealed class ClinicService(
     /// <inheritdoc />
     public bool Delete(long id)
     {
-        return clinicRepository.Delete(id);
+        var deleted = clinicRepository.Delete(id);
+        if (deleted) Audit(id, "DELETE");
+        return deleted;
     }
+
+    private void Audit(long clinicId, string operation) =>
+        auditRepository.TryAdd(new ClinicAuditEntry(clinicId, operation, currentUser.OwnerId,
+            timeProvider.GetUtcNow().UtcDateTime, Activity.Current?.TraceId.ToString()));
 
     private void EnsureCityExists(long cityId)
     {

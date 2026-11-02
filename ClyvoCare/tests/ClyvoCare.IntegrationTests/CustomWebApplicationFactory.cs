@@ -1,10 +1,13 @@
 using ClyvoCare.API;
 using ClyvoCare.Infrastructure.Persistence;
+using ClyvoCare.Application.DTOs;
+using ClyvoCare.Application.Repositories;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using System.IdentityModel.Tokens.Jwt;
@@ -20,6 +23,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     private readonly RSA _signingKey = RSA.Create(2048);
     private readonly string _keyDirectory = Path.Combine(Path.GetTempPath(), "clyvocare-test-" + Guid.NewGuid());
     private bool _disposed;
+    public TestClinicAuditRepository Audit { get; } = new();
 
     public CustomWebApplicationFactory()
     {
@@ -47,10 +51,17 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         _connection.Open();
         builder.UseEnvironment("Development");
         builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
-            new Dictionary<string, string?> { ["Jwt:PublicKeyPath"] = Path.Combine(_keyDirectory, "public.pem") }));
+            new Dictionary<string, string?>
+            {
+                ["Jwt:PublicKeyPath"] = Path.Combine(_keyDirectory, "public.pem"),
+                ["Mongo:ConnectionString"] = "mongodb://localhost:27017",
+                ["Mongo:DatabaseName"] = "clyvocare-tests"
+            }));
 
         builder.ConfigureServices(services =>
         {
+            services.RemoveAll<IClinicAuditRepository>();
+            services.AddSingleton<IClinicAuditRepository>(Audit);
             var descriptorsToRemove = services
                 .Where(d =>
                     d.ServiceType == typeof(DbContextOptions<ClyvoCareContext>)
@@ -121,5 +132,18 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     {
         public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context,
             CancellationToken cancellationToken = default) => Task.FromResult(HealthCheckResult.Healthy());
+    }
+}
+
+public sealed class TestClinicAuditRepository : IClinicAuditRepository
+{
+    public List<ClinicAuditEntry> Entries { get; } = [];
+    public bool Available { get; set; } = true;
+
+    public bool TryAdd(ClinicAuditEntry entry)
+    {
+        if (!Available) return false;
+        Entries.Add(entry);
+        return true;
     }
 }

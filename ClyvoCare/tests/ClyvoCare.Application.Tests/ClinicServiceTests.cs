@@ -1,6 +1,7 @@
 using ClyvoCare.Application.DTOs;
 using ClyvoCare.Application.Repositories;
 using ClyvoCare.Application.Services.Implementations;
+using ClyvoCare.Application.Services.Interfaces;
 using ClyvoCare.Domain.Entities;
 using Moq;
 
@@ -10,11 +11,13 @@ public class ClinicServiceTests
 {
     private readonly Mock<IClinicRepository> _clinics = new();
     private readonly Mock<IRepository<City>> _cities = new();
+    private readonly Mock<IClinicAuditRepository> _audit = new();
     private readonly ClinicService _service;
 
     public ClinicServiceTests()
     {
-        _service = new ClinicService(_clinics.Object, _cities.Object);
+        _service = new ClinicService(_clinics.Object, _cities.Object, _audit.Object,
+            Mock.Of<ICurrentUser>(user => user.OwnerId == 1), TimeProvider.System);
     }
 
     private static ClinicRequest ValidRequest() =>
@@ -74,6 +77,7 @@ public class ClinicServiceTests
         var ex = Assert.Throws<KeyNotFoundException>(act);
         Assert.Equal("Cidade com ID 1 não encontrada.", ex.Message);
         _clinics.Verify(r => r.Add(It.IsAny<Clinic>()), Times.Never);
+        _audit.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -115,6 +119,9 @@ public class ClinicServiceTests
         Assert.Equal(request.Name, result.Name);
         Assert.Equal("Sao Paulo", result.City.Name);
         _clinics.Verify(r => r.Add(It.IsAny<Clinic>()), Times.Once);
+        _audit.Verify(repository => repository.TryAdd(It.Is<ClinicAuditEntry>(entry =>
+            entry.ClinicId == 10 && entry.Operation == "CREATE" && entry.ActorId == 1
+            && entry.OccurredAtUtc.Kind == DateTimeKind.Utc)), Times.Once);
     }
 
     [Fact]
@@ -130,6 +137,7 @@ public class ClinicServiceTests
         var ex = Assert.Throws<KeyNotFoundException>(act);
         Assert.Equal("Clínica com ID 99 não encontrada.", ex.Message);
         _clinics.Verify(r => r.Update(It.IsAny<Clinic>()), Times.Never);
+        _audit.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -216,6 +224,8 @@ public class ClinicServiceTests
 
         //Assert
         Assert.True(result);
+        _audit.Verify(repository => repository.TryAdd(It.Is<ClinicAuditEntry>(entry =>
+            entry.ClinicId == 10 && entry.Operation == "DELETE")), Times.Once);
     }
 
     [Fact]
@@ -229,5 +239,34 @@ public class ClinicServiceTests
 
         //Assert
         Assert.False(result);
+        _audit.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void Update_Success_AuditsAfterSavingEvenWhenMongoIsUnavailable()
+    {
+        var city = TestEntityFactory.CreateCity(1, "City", TestEntityFactory.CreateState(1, "State", "SP"));
+        var clinic = BuildClinicWithCity(10, city);
+        _cities.Setup(repository => repository.ExistsById(1)).Returns(true);
+        _clinics.Setup(repository => repository.GetById(10)).Returns(clinic);
+        _clinics.Setup(repository => repository.GetByIdWithCity(10)).Returns(clinic);
+        var saved = false;
+        _clinics.Setup(repository => repository.Update(clinic)).Callback(() => saved = true).Returns(clinic);
+        _audit.Setup(repository => repository.TryAdd(It.IsAny<ClinicAuditEntry>()))
+            .Callback(() => Assert.True(saved)).Returns(false);
+
+        var result = _service.Update(10, ValidRequest());
+
+        Assert.Equal(10, result.Id);
+        _audit.Verify(repository => repository.TryAdd(It.Is<ClinicAuditEntry>(entry =>
+            entry.Operation == "UPDATE" && entry.ActorId == 1 && entry.ClinicId == 10)), Times.Once);
+    }
+
+    [Fact]
+    public void Delete_RelationalWriteFails_DoesNotAudit()
+    {
+        _clinics.Setup(repository => repository.Delete(10)).Throws(new InvalidOperationException("Write failed"));
+        Assert.Throws<InvalidOperationException>(() => _service.Delete(10));
+        _audit.VerifyNoOtherCalls();
     }
 }

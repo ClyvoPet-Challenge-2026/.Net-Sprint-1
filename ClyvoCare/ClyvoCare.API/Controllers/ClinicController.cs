@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ClyvoCare.Application.DTOs;
 using ClyvoCare.Application.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
@@ -13,6 +14,20 @@ namespace ClyvoCare.API.Controllers;
 [Produces("application/json")]
 public class ClinicController(IClinicService clinicService) : ControllerBase
 {
+    /// <summary>
+    /// Exports relational clinics with embedded city/state documents for MongoDB import.
+    /// </summary>
+    [HttpGet("exportar")]
+    [Authorize(Roles = "ADMIN")]
+    [ProducesResponseType(typeof(IReadOnlyList<ClinicExportResponse>), StatusCodes.Status200OK)]
+    public IActionResult Export()
+    {
+        var documents = clinicService.GetAll().Select(clinic => new ClinicExportResponse(
+            clinic.Id, clinic.Name, clinic.Cnpj, clinic.Phone, clinic.City));
+        return File(JsonSerializer.SerializeToUtf8Bytes(documents,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)), "application/json", "clinics.json");
+    }
+
     /// <summary>
     /// Lists the legacy array without parameters, or a filtered page with navigation links.
     /// </summary>

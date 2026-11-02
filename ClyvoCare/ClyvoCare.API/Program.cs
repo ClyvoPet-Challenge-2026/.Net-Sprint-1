@@ -25,6 +25,7 @@ public partial class Program
             .WriteTo.File("logs/clyvocare-.log", rollingInterval: RollingInterval.Day));
 
         builder.Services.AddClyvoCareDbContext(builder.Configuration);
+        builder.Services.AddClyvoCareMongo(builder.Configuration);
 
         builder.Services.AddClyvoCareRepositories();
 

@@ -51,3 +51,6 @@ PublishProfiles/
 
 # Build logs
 *.binlog
+
+# Local database exports
+/artifacts/

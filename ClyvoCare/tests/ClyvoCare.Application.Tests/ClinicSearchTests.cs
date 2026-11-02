@@ -1,6 +1,7 @@
 using ClyvoCare.Application.DTOs;
 using ClyvoCare.Application.Repositories;
 using ClyvoCare.Application.Services.Implementations;
+using ClyvoCare.Application.Services.Interfaces;
 using ClyvoCare.Domain.Entities;
 using Moq;
 
@@ -63,7 +64,8 @@ public class ClinicSearchTests
     public void SearchPage_ValidRequest_MapsResultsAndPreservesDatabaseCount()
     {
         var clinics = new Mock<IClinicRepository>();
-        var service = new ClinicService(clinics.Object, Mock.Of<IRepository<City>>());
+        var service = new ClinicService(clinics.Object, Mock.Of<IRepository<City>>(),
+            Mock.Of<IClinicAuditRepository>(), Mock.Of<ICurrentUser>(), TimeProvider.System);
         var state = TestEntityFactory.CreateState(1, "Sao Paulo", "SP");
         var city = TestEntityFactory.CreateCity(1, "Sao Paulo", state);
         var clinic = Clinic.Create("Vet", "11.111.111/0001-11", 1, null);
@@ -86,7 +88,8 @@ public class ClinicSearchTests
     public void SearchPage_InvalidRequest_DoesNotReachRepository()
     {
         var clinics = new Mock<IClinicRepository>();
-        var service = new ClinicService(clinics.Object, Mock.Of<IRepository<City>>());
+        var service = new ClinicService(clinics.Object, Mock.Of<IRepository<City>>(),
+            Mock.Of<IClinicAuditRepository>(), Mock.Of<ICurrentUser>(), TimeProvider.System);
         Assert.Throws<ArgumentException>(() => service.SearchPage(new ClinicSearchRequest(PageSize: 101)));
         clinics.VerifyNoOtherCalls();
     }

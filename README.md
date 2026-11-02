@@ -41,6 +41,7 @@ Para rodar a API na sua máquina, você precisa de:
 
 - **.NET SDK 9**, conforme [global.json](ClyvoCare/global.json).
 - **Acesso a um banco Oracle**, com usuário e senha. Você pode usar o Oracle da FIAP com as credenciais da sua conta.
+- **MongoDB**, local ou remoto, para a auditoria. Para preparar as coleções e importar o dataset, use também o [MongoDB Shell (`mongosh`)](https://www.mongodb.com/docs/mongodb-shell/install/).
 - Um schema com as tabelas da aplicação, conforme [Banco de dados compartilhado](#banco-de-dados-compartilhado).
 - **Git**, para clonar o repositório.
 
@@ -61,6 +62,8 @@ No **Bash ou Git Bash**:
 export ConnectionStrings__ClyvoCareOracle='Data Source=oracle.fiap.com.br:1521/ORCL;User Id=SEU_RM;Password=SUA_SENHA;'
 export Jwt__PublicKeyPath='/CAMINHO/ABSOLUTO/public_key.pem'
 export Jwt__Issuer='clyvocare-api'
+export Mongo__ConnectionString='mongodb://localhost:27017'
+export Mongo__DatabaseName='clyvocare'
 dotnet restore
 dotnet run --project ClyvoCare.API --launch-profile http
 ```
@@ -71,6 +74,8 @@ No **PowerShell**:
 $env:ConnectionStrings__ClyvoCareOracle = 'Data Source=oracle.fiap.com.br:1521/ORCL;User Id=SEU_RM;Password=SUA_SENHA;'
 $env:Jwt__PublicKeyPath = 'C:/CAMINHO/ABSOLUTO/public_key.pem'
 $env:Jwt__Issuer = 'clyvocare-api'
+$env:Mongo__ConnectionString = 'mongodb://localhost:27017'
+$env:Mongo__DatabaseName = 'clyvocare'
 dotnet restore
 dotnet run --project ClyvoCare.API --launch-profile http
 ```
@@ -84,6 +89,10 @@ As credenciais conectam a aplicação ao banco. A .NET valida os JWTs emitidos p
 O token deve ter assinatura RS256, emissor `clyvocare-api`, expiração, `sub` com e-mail, `ownerId` positivo e um único perfil `OWNER` ou `ADMIN`. A API confere ID, e-mail, perfil e `ENABLED='Y'` no banco a cada autenticação. Conta desativada ou identidade divergente retorna `401`, mesmo com assinatura válida. Tokens antigos sem `ownerId` exigem novo login. O contrato Java não emite audience, portanto essa verificação está desabilitada; assinatura, emissor, prazo e conta continuam obrigatórios. A tolerância de relógio é zero: mantenha os servidores sincronizados.
 
 No Swagger, use **Authorize** e informe o token Java sem o prefixo `Bearer`. O contrato marca autenticação nas operações protegidas, preservando as consultas públicas. Em clientes HTTP, envie `Authorization: Bearer SEU_TOKEN`. Falta de token ou token inválido retorna `401`; conta `OWNER` tentando alterar clínicas recebe `403`. Ao trocar o par de chaves, distribua a nova pública, reinicie os serviços e faça novo login.
+
+Para gerar o par RSA após clonar, execute `bash scripts/generate-keys.sh` na raiz do repositório Java. Aponte a .NET para o `public_key.pem` gerado ali; não gere um par diferente para cada API. O script preserva chaves existentes e aceita uma pasta de destino como primeiro argumento.
+
+Antes de iniciar a .NET, prepare o MongoDB conforme a seção de auditoria abaixo. A URI local acima pressupõe um servidor MongoDB já iniciado; ela não instala nem cria um container. Em deploy, use o endereço interno ou remoto do serviço e suas credenciais. Dentro de containers separados, `localhost` aponta para o próprio container. As duas variáveis `Mongo__ConnectionString` e `Mongo__DatabaseName` são obrigatórias e não têm credenciais padrão no repositório.
 
 ### O que acontece ao iniciar
 
@@ -165,6 +174,63 @@ Para a .NET acessar os registros desse ambiente, configure `Data Source=HOST_DO_
 
 O deploy ACI atual desabilita Flyway e usa Hibernate para criar ou atualizar tabelas. Consulte as diferenças e os comandos de provisionamento no [README de Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1#deploy-no-azure-acr--aci).
 
+## MongoDB, auditoria e exportação
+
+Oracle continua sendo a fonte dos dados das duas APIs. MongoDB tem duas coleções distintas: `ClinicAuditLogs`, gravada pela .NET após alterações nas clínicas, e `Clinics`, alimentada pela exportação/importação abaixo. A API Java não depende do MongoDB.
+
+Na raiz deste repositório, com as mesmas variáveis `Mongo__ConnectionString` e `Mongo__DatabaseName` definidas para a API, execute:
+
+```bash
+mongosh --nodb --file docs/mongodb/create-collections.js
+```
+
+O [script de criação](docs/mongodb/create-collections.js) configura validadores e índices para as duas coleções. Pode ser executado novamente: atualiza os validadores sem excluir os documentos. Os IDs relacionais são BSON `long`; a data da auditoria é BSON `date`. Na coleção `Clinics`, cidade e estado ficam embutidos no documento, evitando joins para consultas por localidade.
+
+O usuário que executa a preparação precisa de permissão para criar coleções, modificar validadores (`collMod`) e criar índices. A aplicação precisa gravar em `ClinicAuditLogs`; o importador precisa ler e atualizar `Clinics`. Use os endereços e usuários do ambiente de deploy, sem versionar credenciais.
+
+### Gerar e importar o dataset
+
+Com a .NET iniciada e um token `ADMIN` obtido pelo login Java, execute na raiz do repositório, em Bash ou Git Bash:
+
+```bash
+export DOTNET_API_URL='http://localhost:5067'
+export ADMIN_TOKEN='TOKEN_OBTIDO_NO_LOGIN_JAVA'
+mkdir -p artifacts
+curl --fail --silent --show-error \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "$DOTNET_API_URL/api/clinicas/exportar" \
+  --output artifacts/clinics.json
+export CLINICS_JSON_PATH="$PWD/artifacts/clinics.json"
+mongosh --nodb --file docs/mongodb/import-clinics.js
+```
+
+`GET /api/clinicas/exportar` baixa um array JSON com todas as clínicas do Oracle, sem paginação ou links HTTP. Exige `ADMIN`: sem autenticação retorna `401`, e `OWNER` recebe `403`. Cada documento usa o ID relacional em `_id` e contém `name`, `cnpj`, `phone` e `city`, com `state` aninhado. O exportador não consulta MongoDB e funciona durante sua indisponibilidade.
+
+O [script de importação](docs/mongodb/import-clinics.js) usa `replaceOne` com `upsert` pelo `_id`: repetir a importação atualiza os mesmos documentos sem duplicá-los. Não apaga clínicas ausentes do novo arquivo nem sincroniza alterações posteriores automaticamente. Um erro interrompe a execução; documentos já importados permanecem e podem ser atualizados ao repetir o comando. Os IDs precisam ser inteiros positivos representáveis com segurança em JavaScript; valores acima desse limite são recusados antes das gravações.
+
+No Git Bash do Windows, se o `mongosh` for o executável nativo do Windows, use `export CLINICS_JSON_PATH="$(pwd -W)/artifacts/clinics.json"`. O caminho é interpretado pelo processo que executa o script. No PowerShell, defina `$env:CLINICS_JSON_PATH = (Resolve-Path artifacts/clinics.json).Path`.
+
+Os JSONs locais em `artifacts/` ficam fora do Git. Guarde o arquivo gerado do ambiente usado na demonstração para a entrega de Database; os scripts não substituem esse entregável nem o vídeo narrado.
+
+### Comportamento da auditoria
+
+Criação, atualização e exclusão bem-sucedidas de clínicas geram metadados com `clinicId`, `operation` (`CREATE`, `UPDATE` ou `DELETE`), `actorId`, `occurredAtUtc` e `traceId`. Não são copiados nomes, telefones, tokens ou chaves. Falhas de validação, registros ausentes e gravações relacionais que falharam não geram auditoria de sucesso.
+
+A gravação no MongoDB é uma tentativa após o commit no Oracle. Falhas do driver são registradas sem os detalhes da conexão e não desfazem a alteração relacional nem mudam sua resposta de sucesso. Não há fila ou reenvio automático: a auditoria daquela operação pode se perder. Os timeouts de seleção de servidor, conexão e socket são de três segundos cada; uma falha pode acrescentar espera à requisição.
+
+O health check faz `ping` no MongoDB e informa `Degraded` quando ele está indisponível, sem expor a mensagem interna da conexão. Esse ping não comprova permissão de escrita ou execução dos scripts. O dataset `Clinics` só muda quando você repete a exportação e a importação.
+
+### Ordem de preparação do ambiente
+
+1. Disponibilize um Oracle persistente e um usuário/schema da aplicação, compartilhado entre Java e .NET.
+2. Gere uma vez o par RSA. Monte a privada e a pública na Java; monte somente a mesma pública na .NET.
+3. Execute Java com Flyway habilitado e Hibernate em `validate`, após conferir o histórico do schema. Prepare e aplique as migrations clínicas EF somente quando pendentes e revisadas.
+4. Disponibilize um MongoDB persistente e execute `create-collections.js` com a configuração do ambiente.
+5. Inicie a .NET com Oracle, MongoDB e chave pública configurados. Confira `/health`, faça login na Java e teste uma operação autenticada.
+6. Exporte o JSON e importe em MongoDB para a demonstração de Database.
+
+O script ACI legado do repositório Java ainda não provisiona a .NET nem o MongoDB, desabilita Flyway e não configura persistência do Oracle. Ele precisa dos ajustes de deploy antes de servir como entrega integrada. Não use H2 na execução final: ele fica restrito aos testes isolados de Java.
+
 ## Endpoints
 
 As rotas de negócio começam com `/api`. As localidades e as rotas legadas de clínicas retornam arrays. `GET /api/clinicas` sem parâmetros preenchidos preserva esse formato; com filtros ou paginação, retorna uma página. A listagem de agendamentos também é paginada.
@@ -179,6 +245,7 @@ As rotas de negócio começam com `/api`. As localidades e as rotas legadas de c
 | `GET` | `/api/clinicas/{id}` | Consultar uma clínica | `200`, `404` |
 | `GET` | `/api/clinicas/por-cidade/{cityId}` | Listar clínicas de uma cidade existente | `200`, `404` |
 | `GET` | `/api/clinicas/buscar?nome=&cnpj=` | Buscar por nome parcial e/ou CNPJ exato | `200` |
+| `GET` | `/api/clinicas/exportar` | Baixar o dataset relacional para MongoDB (`ADMIN`) | `200`, `401`, `403` |
 | `POST` | `/api/clinicas` | Cadastrar uma clínica (`ADMIN`) | `201`, `400`, `401`, `403`, `404` |
 | `PUT` | `/api/clinicas/{id}` | Atualizar os dados de uma clínica (`ADMIN`) | `204`, `400`, `401`, `403`, `404` |
 | `DELETE` | `/api/clinicas/{id}` | Excluir uma clínica (`ADMIN`) | `204`, `401`, `403`, `404` |
@@ -328,11 +395,12 @@ A configuração está em [Program.cs](ClyvoCare/ClyvoCare.API/Program.cs).
 
 ### Health Checks
 
-`GET /health` executa três verificações:
+`GET /health` executa quatro verificações:
 
 | Verificação | Dependência |
 |---|---|
 | `Oracle FIAP` | Oracle configurado em `ConnectionStrings:ClyvoCareOracle` |
+| `MongoDB` | Ping no banco configurado em `Mongo:ConnectionString` e `Mongo:DatabaseName` |
 | `FIAP` | `https://fiap.com.br` |
 | `Google` | `https://google.com.br` |
 
@@ -341,6 +409,8 @@ O nome `Oracle FIAP` é fixo no código, mesmo quando a conexão aponta para out
 O endpoint retorna `200` quando as verificações estão saudáveis e `503` em caso de falha crítica. Uma falha de credenciais Oracle ou indisponibilidade dos sites pode deixar o resultado geral como `Unhealthy`; confira `checks[].error` para identificar a dependência.
 
 O teste cobre conectividade. Ele não confirma se todas as tabelas, dados ou operações de negócio estão corretas. Na versão atual, há somente `/health`, sem rotas separadas de readiness e liveness.
+
+Se apenas o MongoDB estiver indisponível, seu resultado é `Degraded`; o padrão do ASP.NET Core mantém HTTP `200` nesse estado. Monitore também `status` e os itens de `checks`, além do código HTTP.
 
 ### Logs com Serilog
 
@@ -415,12 +485,21 @@ Nos testes HTTP, a factory substitui o DbContext por SQLite, fornece contas cont
 
 Os testes de autenticação cobrem assinatura alterada, algoritmo incorreto, token sem assinatura, emissor/prazo inválidos, claims ausentes ou ambíguas, identidade divergente, conta desativada e autorização de consultas/escritas. Há também verificações das chaves de configuração e do contrato Swagger. A integração com o login Java e o Oracle reais exige uma validação separada no ambiente integrado.
 
+Os testes de auditoria e health check Mongo usam objetos do driver simulados; os testes HTTP substituem o repositório de auditoria por uma implementação em memória. Não precisam de servidor MongoDB. Para conferir os scripts com objetos isolados de shell, na raiz do repositório, execute:
+
+```bash
+node docs/mongodb/scripts.test.cjs
+```
+
+Esse comando precisa de Node.js e não comprova importação em servidor real. Para a entrega, execute também os scripts com MongoDB e o JSON exportado do Oracle, confira contagens e documentos e demonstre as gravações de auditoria e a indisponibilidade.
+
 ## Tecnologias utilizadas
 
 | Ferramenta | Papel |
 |---|---|
 | .NET 9 e ASP.NET Core | Execução da API e endpoints HTTP |
 | Entity Framework Core 9 e Oracle.EntityFrameworkCore | Persistência e mapeamento do Oracle |
+| MongoDB.Driver | Auditoria de clínicas em MongoDB |
 | Swashbuckle | Swagger UI e contrato OpenAPI |
 | Serilog | Logs no console, arquivo diário e requisições HTTP |
 | AspNetCore.HealthChecks.Oracle e Uris | Verificação de banco e URLs externas |
