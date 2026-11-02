@@ -29,6 +29,7 @@ stages:
           - bash: |
               set -euo pipefail
               bash scripts/start-appservice.test.sh
+              node scripts/provision-atlas.test.cjs
               node docs/mongodb/scripts.test.cjs
               dotnet restore ClyvoCare/ClyvoCare.sln
               dotnet test ClyvoCare/ClyvoCare.sln --no-restore --configuration Release \

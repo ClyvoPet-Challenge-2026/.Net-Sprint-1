@@ -176,7 +176,51 @@ O provisionamento compartilhado está no [README Java](https://github.com/ClyvoP
 
 Oracle continua sendo a fonte dos dados das duas APIs. MongoDB tem duas coleções distintas: `ClinicAuditLogs`, gravada pela .NET após alterações nas clínicas, e `Clinics`, alimentada pela exportação/importação abaixo. A API Java não depende do MongoDB.
 
-Na raiz deste repositório, com as mesmas variáveis `Mongo__ConnectionString` e `Mongo__DatabaseName` definidas para a API, execute:
+### Provisionamento gratuito no Atlas
+
+O script [scripts/provision-atlas.cjs](scripts/provision-atlas.cjs) cria ou reutiliza um projeto dedicado com tag `project=clyvocare-sprint4` e um cluster **M0 gratuito no provedor Azure**. Ele consulta as regiões M0 antes de criar o cluster, usa `US_EAST_2` por padrão e não faz fallback para um plano pago. O Atlas usa sua própria conta e não exige que ela seja a mesma do login Azure; o cluster fica na infraestrutura do provedor escolhido, administrado pelo Atlas.
+
+Instale Node.js e a [Atlas CLI](https://www.mongodb.com/docs/atlas/cli/current/install-atlas-cli/) no PATH. A validação desta entrega usou Atlas CLI 1.59.4. Se usar uma instalação portátil, configure `ATLAS_EXECUTABLE` com o caminho do executável. O script não instala ferramentas, não compra serviços e não configura o faturamento do Marketplace Azure.
+
+Na raiz do repositório, autentique um perfil próprio e consulte o ID da sua organização:
+
+```bash
+atlas auth login --authType UserAccount --profile clyvocare-rm561584 --output json
+atlas organizations list --profile clyvocare-rm561584 --output json
+export ATLAS_PROFILE='clyvocare-rm561584'
+export ATLAS_ORG_ID='ID_DA_SUA_ORGANIZACAO'
+export ATLAS_PROJECT_NAME='clyvocare-rm561584'
+export ATLAS_CLUSTER_NAME='clyvocare-rm561584'
+export ATLAS_REGION='US_EAST_2'
+export Mongo__DatabaseName='clyvocare'
+export ATLAS_ALLOWED_IPS='SEU_IP_PUBLICO'
+```
+
+`ATLAS_ALLOWED_IPS` aceita endereços IPv4 individuais separados por vírgula, sem faixas CIDR ou `0.0.0.0/0`. Inicialmente, informe o IP do computador que fará a preparação. Depois de criar o App Service, acrescente os IPs possíveis de saída da .NET retornados pelo provisionamento Azure e execute novamente. As regras existentes não são apagadas; regras amplas ou um projeto/cluster fora do escopo esperado fazem o script parar para revisão.
+
+Gere duas senhas diferentes e fortes, com pelo menos 20 caracteres, e preserve-as em um cofre ou variáveis secretas. Para informá-las no Git Bash sem gravar valores no histórico:
+
+```bash
+read -r -s -p 'Senha do usuario da aplicacao: ' ATLAS_APP_PASSWORD; printf '\n'
+export ATLAS_APP_PASSWORD
+read -r -s -p 'Senha do usuario de preparacao: ' ATLAS_SETUP_PASSWORD; printf '\n'
+export ATLAS_SETUP_PASSWORD
+node scripts/provision-atlas.cjs
+```
+
+O script cria `clyvocare_app` com `readWrite` no banco informado e `clyvocare_setup` com `readWrite` e `dbAdmin` nesse banco. Os dois ficam restritos ao cluster. As senhas são enviadas à API por stdin e não aparecem nos argumentos dos processos nem na saída. Usuários existentes são conferidos e reutilizados, sem troca de senha ou alteração de permissões; mantenha as credenciais originais. A saída contém apenas IDs, estado, SRV sem credenciais e nomes dos usuários. Uma falha interrompe o fluxo, sem excluir recursos criados ou afetar outro projeto; corrija a causa e reexecute com os mesmos nomes e segredos.
+
+Antes de conectar ao banco, espere o cluster ficar `IDLE`. Se precisar acompanhar pela CLI, use o `projectId` retornado pelo script:
+
+```bash
+atlas clusters watch clyvocare-rm561584 --projectId ID_DO_PROJETO --profile clyvocare-rm561584
+```
+
+Configure a URI `mongodb+srv` com usuário e senha escapados para URL e `authSource=admin`. A API e o importador usam **`clyvocare_app`**; somente a preparação de validadores e índices usa **`clyvocare_setup`**. Guarde a URI como segredo do ambiente, sem colocá-la no Git, nos artefatos ou no vídeo. Nenhuma chave RSA é enviada ao Atlas.
+
+### Preparar as coleções
+
+Na raiz deste repositório, defina `Mongo__ConnectionString` com a URI do usuário de preparação e `Mongo__DatabaseName` com o mesmo banco da API. Execute:
 
 ```bash
 mongosh --nodb --file docs/mongodb/create-collections.js
@@ -184,7 +228,7 @@ mongosh --nodb --file docs/mongodb/create-collections.js
 
 O [script de criação](docs/mongodb/create-collections.js) configura validadores e índices para as duas coleções. Pode ser executado novamente: atualiza os validadores sem excluir os documentos. Os IDs relacionais são BSON `long`; a data da auditoria é BSON `date`. Na coleção `Clinics`, cidade e estado ficam embutidos no documento, evitando joins para consultas por localidade.
 
-O usuário que executa a preparação precisa de permissão para criar coleções, modificar validadores (`collMod`) e criar índices. A aplicação precisa gravar em `ClinicAuditLogs`; o importador precisa ler e atualizar `Clinics`. Use os endereços e usuários do ambiente de deploy, sem versionar credenciais.
+O usuário que executa a preparação precisa de permissão para criar coleções, modificar validadores (`collMod`) e criar índices. Depois dessa etapa, use a URI de `clyvocare_app` na aplicação e na importação. O usuário da aplicação não recebe permissão para alterar validadores. Use os endereços e usuários do ambiente de deploy, sem versionar credenciais.
 
 ### Gerar e importar o dataset
 
@@ -581,6 +625,8 @@ node docs/mongodb/scripts.test.cjs
 ```
 
 Esse comando precisa de Node.js e não comprova importação em servidor real. Para a entrega, execute também os scripts com MongoDB e o JSON exportado do Oracle, confira contagens e documentos e demonstre as gravações de auditoria e a indisponibilidade.
+
+O provisionamento M0 tem uma verificação isolada: `node scripts/provision-atlas.test.cjs`. Ela simula a CLI para conferir região gratuita, recusa de planos pagos ou projetos alheios, reutilização sem alterações, permissões dos usuários, IPs individuais e ausência de senhas nos argumentos e na saída. A pipeline executa essa verificação sem credenciais reais de Atlas.
 
 ## Tecnologias utilizadas
 
