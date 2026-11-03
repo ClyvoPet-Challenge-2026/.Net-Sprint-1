@@ -6,6 +6,14 @@ Com ela, você pode cadastrar uma clínica, atualizar seus dados e encontrar cl�
 
 A proposta é manter o cadastro da rede veterinária ligado às cidades já usadas pelo restante do sistema. Para quem consulta, isso permite localizar as clínicas cadastradas. Para a administração, permite manter os dados de contato e localização sem duplicar o cadastro de estados e cidades.
 
+## Arquitetura
+
+![Camadas da API .NET e integração com os bancos](docs/architecture.svg)
+
+A API recebe as requisições e compõe os serviços e repositórios pela injeção de dependência. Application concentra os casos de uso, DTOs e interfaces; Domain mantém as entidades e suas invariantes. Infrastructure implementa os contratos de persistência com EF Core/Oracle e o driver MongoDB. Application e Infrastructure dependem de Domain; o domínio não depende dos bancos nem da camada HTTP.
+
+As duas APIs compartilham o Oracle FIAP. O login Java emite o JWT; a .NET valida esse token com a chave pública e confere a conta no banco. A auditoria de clínicas usa MongoDB Atlas. O [diagrama](docs/architecture.svg) representa essas dependências e a observabilidade implementada.
+
 ## Como os projetos se complementam
 
 O ClyvoCare está dividido em repositórios que atendem a partes diferentes da solução e das entregas do Challenge:
@@ -33,7 +41,32 @@ Por exemplo: uma cidade cadastrada pela API Java fica disponível em `GET /api/c
 
 Status e formas de pagamento das contratações são valores de texto em `TB_CAD_SUBSCRIPTION`, conforme os enums de Java. O SQL atual não cria as antigas tabelas `TB_CAD_SUB_STATUS` e `TB_CAD_PAYMENT_METHOD`.
 
-As instruções do frontend web ficam no repositório **ClyvoCare Web**. Essa interface usa os fluxos de Java; para experimentar os endpoints desta API, use o Swagger ou um cliente HTTP.
+O aplicativo **Clyvo-Care** integra os fluxos Java com clínicas e agendamentos desta API. O **ClyvoCare Web** permanece como referência da interface web da Sprint 3. Para experimentar os endpoints .NET diretamente, use o Swagger ou um cliente HTTP.
+
+## API publicada na Azure
+
+| Endereço | Uso |
+|---|---|
+| [Swagger](https://clyvocare-dotnet-rm561584.azurewebsites.net/) | Documentação e execução das operações |
+| [Contrato OpenAPI exportado](docs/openapi.json) | Contrato JSON da API publicada, para consulta sem iniciar a aplicação |
+| [Clínicas](https://clyvocare-dotnet-rm561584.azurewebsites.net/api/clinicas) | Consulta pública no Oracle FIAP |
+| [Health check](https://clyvocare-dotnet-rm561584.azurewebsites.net/health) | Estado do Oracle, MongoDB e serviços externos |
+
+A API usa Oracle FIAP e MongoDB Atlas remotos. O deploy é nativo em um Web App Linux .NET 9, no grupo `rm561584`, compartilhando o plano B2 com a Java. As credenciais ficam nas configurações protegidas dos Web Apps; o repositório e o artefato não contêm senhas nem chaves RSA.
+
+No App Service, a conexão Oracle usa um descriptor com keepalive de um minuto e limites de abertura de conexão, para evitar a reutilização de conexões ociosas encerradas pela rede. Configure o valor completo em `ConnectionStrings__ClyvoCareOracle`, substituindo apenas as credenciais:
+
+```text
+Data Source=(DESCRIPTION=(EXPIRE_TIME=1)(CONNECT_TIMEOUT=15)(TRANSPORT_CONNECT_TIMEOUT=10)(ADDRESS=(PROTOCOL=TCP)(HOST=oracle.fiap.com.br)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ORCL)));User Id=SEU_RM;Password=SUA_SENHA;Validate Connection=true;
+```
+
+Esse descriptor também atende ao health check, que usa a mesma configuração. Não é necessário mudar o schema nem desabilitar o pool. O provisionamento compartilhado preserva o valor fornecido; use esse formato ao reproduzir o deploy. Referência: [parâmetros Oracle Net e EXPIRE_TIME](https://docs.oracle.com/en/database/oracle/oracle-database/19/haovw/oracle-net-tns-string-parameters.html).
+
+O Oracle da FIAP também pode encerrar uma sessão pelo limite de ociosidade do usuário, retornando `ORA-02396`. O keepalive de rede não impede esse encerramento. Por isso, a aplicação habilita `Validate Connection=true` tanto no EF Core quanto no health check: o driver confere a conexão ao retirá-la do pool e substitui as sessões inválidas antes da consulta. O pool continua ativo; não há repetição automática de gravações. Essa validação acrescenta uma ida ao banco por abertura de conexão. Referência: [validação de conexões no ODP.NET](https://docs.oracle.com/en/database/oracle/oracle-database/19/odpnt/featConnecting.html).
+
+A pipeline [clyvocare-dotnet](https://dev.azure.com/RM561584/Sprint%204%20%E2%80%93%20Azure%20DevOps/_build?definitionId=2) publica automaticamente após build, testes e geração do artefato na `master`. A execução [5](https://dev.azure.com/RM561584/Sprint%204%20%E2%80%93%20Azure%20DevOps/_build/results?buildId=5) concluiu CI e CD com sucesso. Na validação integrada de 02/11/2026, foram confirmados acesso ao Oracle, JWT Java na .NET, agendamentos, isolamento entre tutores e auditoria de criação, atualização e exclusão de clínica no Atlas. Para avaliar o estado atual, consulte o health check e a execução mais recente.
+
+A `develop` concentra o desenvolvimento. A `master` dispara o CI/CD exigido em DevOps; a `main` e as tags identificam as versões de entrega. Uma tag registra o commit da versão, sem executar outro provisionamento.
 
 ## Como executar
 
@@ -41,7 +74,7 @@ Para rodar a API na sua máquina, você precisa de:
 
 - **.NET SDK 9**, conforme [global.json](ClyvoCare/global.json).
 - **Acesso a um banco Oracle**, com usuário e senha. Você pode usar o Oracle da FIAP com as credenciais da sua conta.
-- **MongoDB**, local ou remoto, para a auditoria. Para preparar as coleções e importar o dataset, use também o [MongoDB Shell (`mongosh`)](https://www.mongodb.com/docs/mongodb-shell/install/).
+- **MongoDB remoto**, como o Atlas Free usado no deploy, para a auditoria. Para preparar as coleções e importar o dataset, use também o [MongoDB Shell (`mongosh`)](https://www.mongodb.com/docs/mongodb-shell/install/).
 - Um schema com as tabelas da aplicação, conforme [Banco de dados compartilhado](#banco-de-dados-compartilhado).
 - **Git**, para clonar o repositório.
 
@@ -50,7 +83,7 @@ Para rodar a API na sua máquina, você precisa de:
 Clone o projeto e entre na pasta da solução:
 
 ```bash
-git clone https://github.com/ClyvoPet-Challenge-2026/.Net-Sprint-1.git
+git clone --branch master https://github.com/ClyvoPet-Challenge-2026/.Net-Sprint-1.git
 cd .Net-Sprint-1/ClyvoCare
 ```
 
@@ -62,7 +95,8 @@ No **Bash ou Git Bash**:
 export ConnectionStrings__ClyvoCareOracle='Data Source=oracle.fiap.com.br:1521/ORCL;User Id=SEU_RM;Password=SUA_SENHA;'
 export Jwt__PublicKeyPath='/CAMINHO/ABSOLUTO/public_key.pem'
 export Jwt__Issuer='clyvocare-api'
-export Mongo__ConnectionString='mongodb://localhost:27017'
+read -r -s -p 'URI MongoDB Atlas: ' Mongo__ConnectionString; printf '\n'
+export Mongo__ConnectionString
 export Mongo__DatabaseName='clyvocare'
 dotnet restore
 dotnet run --project ClyvoCare.API --launch-profile http
@@ -74,7 +108,8 @@ No **PowerShell**:
 $env:ConnectionStrings__ClyvoCareOracle = 'Data Source=oracle.fiap.com.br:1521/ORCL;User Id=SEU_RM;Password=SUA_SENHA;'
 $env:Jwt__PublicKeyPath = 'C:/CAMINHO/ABSOLUTO/public_key.pem'
 $env:Jwt__Issuer = 'clyvocare-api'
-$env:Mongo__ConnectionString = 'mongodb://localhost:27017'
+$mongoUri = Read-Host 'URI MongoDB Atlas' -AsSecureString
+$env:Mongo__ConnectionString = [pscredential]::new('atlas', $mongoUri).GetNetworkCredential().Password
 $env:Mongo__DatabaseName = 'clyvocare'
 dotnet restore
 dotnet run --project ClyvoCare.API --launch-profile http
@@ -92,7 +127,7 @@ No Swagger, use **Authorize** e informe o token Java sem o prefixo `Bearer`. O c
 
 Para gerar o par RSA após clonar, execute `bash scripts/generate-keys.sh` na raiz do repositório Java. Aponte a .NET para o `public_key.pem` gerado ali; não gere um par diferente para cada API. O script preserva chaves existentes e aceita uma pasta de destino como primeiro argumento.
 
-Antes de iniciar a .NET, prepare o MongoDB conforme a seção de auditoria abaixo. A URI local acima pressupõe um servidor MongoDB já iniciado; ela não instala nem cria um container. Em deploy, use o endereço interno ou remoto do serviço e suas credenciais. Dentro de containers separados, `localhost` aponta para o próprio container. As duas variáveis `Mongo__ConnectionString` e `Mongo__DatabaseName` são obrigatórias e não têm credenciais padrão no repositório.
+Antes de iniciar a .NET, prepare o Atlas conforme a seção de auditoria abaixo e autorize o IP de saída do computador na lista de acesso do projeto. Use a URI do usuário de aplicação com acesso ao banco `clyvocare`. O fluxo da entrega utiliza bancos remotos e não exige Oracle ou MongoDB locais. As duas variáveis `Mongo__ConnectionString` e `Mongo__DatabaseName` são obrigatórias e não têm credenciais padrão no repositório.
 
 ### O que acontece ao iniciar
 
@@ -168,7 +203,7 @@ A evolução do schema na execução normal de Java está nas [migrations Flyway
 
 ### Oracle na FIAP e na Azure
 
-Para o novo ambiente **App Service**, as duas APIs serão publicadas na Azure e continuarão acessando o mesmo Oracle da FIAP pela rede. O banco não será copiado nem recriado. A conexão de cada Web App deve apontar para o mesmo schema; confira o histórico Flyway e EF antes de qualquer atualização. A conexão Azure → FIAP ainda precisa ser validada no ambiente publicado.
+No ambiente **App Service** publicado, as duas APIs acessam o mesmo Oracle da FIAP pela rede. O banco não foi copiado nem recriado. A conexão de cada Web App aponta para o mesmo schema; confira o histórico Flyway e EF antes de qualquer atualização. A conexão Azure → FIAP foi validada pelas operações da aplicação publicada, conforme a seção de acesso público acima.
 
 O provisionamento compartilhado está no [README Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1#provisionamento-compartilhado). O grupo dedicado desta entrega é `rm561584`, com as duas APIs no mesmo plano App Service. Os scripts antigos de ACR + ACI foram removidos; a publicação atual usa os artefatos das pipelines.
 
@@ -275,7 +310,7 @@ O provisionamento App Service mantém a conexão com o Oracle da FIAP e recebe a
 
 ## Inicialização no Azure App Service
 
-O script [scripts/start-appservice.sh](scripts/start-appservice.sh) prepara a execução nativa da API em **App Service Linux com .NET 9**, no ambiente **Production**. O provisionamento compartilhado está no [repositório Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1#provisionamento-compartilhado); execute uma única vez para criar o plano e os dois Web Apps. A pipeline está descrita abaixo. A execução completa ainda precisa ser validada na Azure e no Azure DevOps.
+O script [scripts/start-appservice.sh](scripts/start-appservice.sh) prepara a execução nativa da API em **App Service Linux com .NET 9**, no ambiente **Production**. O provisionamento compartilhado está no [repositório Java](https://github.com/ClyvoPet-Challenge-2026/Java-Sprint-1#provisionamento-compartilhado); execute uma única vez para criar o plano e os dois Web Apps. A pipeline está descrita abaixo. O ambiente RM561584 já foi provisionado e validado; siga essas instruções para reproduzir a instalação em outro ambiente.
 
 Na raiz deste repositório, prepare o diretório de publicação:
 
@@ -323,7 +358,7 @@ Configure o projeto privado **Sprint 4 – Azure DevOps**, a conexão de serviç
 
 Conecte esta pipeline ao repositório GitHub e selecione `/azure-pipelines.yml`. O YAML já define `azureResourceGroup: rm561584`; configure a variável não secreta `dotnetWebAppName`. Para outro ambiente, ajuste o grupo no YAML. Se a conexão tiver outro nome, ajuste `azureServiceConnection` no YAML. As credenciais de Oracle, Atlas e RSA permanecem nas configurações protegidas do Web App; os testes do CI usam SQLite, RSA temporária e objetos simulados, sem credenciais reais. O provisionamento não prepara o Atlas nem suas coleções: confira os scripts MongoDB e os IPs de saída permitidos antes de publicar.
 
-Prepare a branch `master` preservando o histórico da versão validada. Somente adicionar o YAML em `develop` ou `main` não ativa o gatilho obrigatório. Para o vídeo, demonstre uma alteração real no código, os testes e artefatos no Azure DevOps, o CD automático, a aplicação pública e o CRUD com `SELECT` no Oracle. A configuração do projeto, o acesso Basic do professor, o diagrama e o PDF continuam sendo necessários. A execução real da pipeline e do deploy ainda está pendente.
+Prepare a branch `master` preservando o histórico da versão validada. Somente adicionar o YAML em `develop` ou `main` não ativa o gatilho obrigatório. Para o vídeo, demonstre uma alteração real no código, os testes e artefatos no Azure DevOps, o CD automático, a aplicação pública e o CRUD com `SELECT` no Oracle. O CI/CD do ambiente RM561584 já concluiu uma execução automática com sucesso. O acesso Basic do professor, o diagrama, o PDF e a gravação continuam sendo entregáveis que a equipe deve conferir.
 
 Referências: [artefatos do Azure Pipelines](https://learn.microsoft.com/en-us/azure/devops/pipelines/artifacts/pipeline-artifacts) e [publicação de ZIP no App Service](https://learn.microsoft.com/en-us/azure/app-service/deploy-zip).
 
@@ -599,6 +634,8 @@ Os testes de hospedagem verificam HTTPS encaminhado por proxies privados, recusa
 
 Na raiz do repositório, execute também `bash scripts/start-appservice.test.sh`. Esse teste usa uma chave temporária e simula o executável .NET para conferir configurações obrigatórias, recusa de Base64/PEM inválido ou privado, porta da plataforma, diretório de publicação, logs, reinicialização com a mesma pública e propagação de falhas. No Linux, verifica permissões `600` do PEM e `700` do diretório. Ele não conecta aos bancos nem provisiona recursos.
 
+Na conferência Release de 02/11/2026, passaram 255 testes: 41 de Domínio, 51 de Aplicação e 163 de Integração. A cobertura de linhas consolidada entre os três relatórios foi de 77,16% em Domain (125/162) e 100% em Application (185/185). Esses números identificam essa execução; novas alterações exigem nova medição.
+
 Para gerar os arquivos de cobertura com `coverlet.collector`:
 
 ```bash
@@ -627,6 +664,22 @@ node docs/mongodb/scripts.test.cjs
 Esse comando precisa de Node.js e não comprova importação em servidor real. Para a entrega, execute também os scripts com MongoDB e o JSON exportado do Oracle, confira contagens e documentos e demonstre as gravações de auditoria e a indisponibilidade.
 
 O provisionamento M0 tem uma verificação isolada: `node scripts/provision-atlas.test.cjs`. Ela simula a CLI para conferir região gratuita, recusa de planos pagos ou projetos alheios, reutilização sem alterações, permissões dos usuários, IPs individuais e ausência de senhas nos argumentos e na saída. A pipeline executa essa verificação sem credenciais reais de Atlas.
+
+## Quality Assurance: regressão das APIs publicadas
+
+A [coleção Postman](qa/postman/ClyvoCare-Sprint04.postman_collection.json) contém seis casos e doze asserções, executados nas URLs Azure. Ela compara os estados retornados por Java/.NET e confere paginação, validação com `400`, recurso inexistente com `404` e escrita anônima recusada com `401`. Não precisa de credenciais nem cria registros. O [plano manual no Azure Boards](https://dev.azure.com/RM561336/CHALLENGE%20-%20CLYVO%20CARE/_workitems/edit/183) detalha também CRUD autenticado, agendamentos, isolamento e regras de assinatura.
+
+Para executar com Node.js e Newman, na raiz deste repositório:
+
+```bash
+npx --yes newman@6.2.3 run qa/postman/ClyvoCare-Sprint04.postman_collection.json --reporters cli,junit --reporter-junit-export artifacts/qa/newman.xml
+```
+
+O runner mostra os resultados no terminal e grava o JUnit em `artifacts/qa/newman.xml`, pasta ignorada pelo Git. A primeira execução pode baixar o Newman. Também é possível importar a coleção no Postman; as variáveis `javaBaseUrl` e `dotnetBaseUrl` já apontam para as APIs publicadas.
+
+Esses casos complementam os testes xUnit. As asserções de leitura e recusa de escrita não comprovam, por si só, o CRUD autenticado completo nem a execução de todos os casos manuais. A coleção será entregue na `develop` pública; o vídeo de QA ainda precisa ser gravado e seu link informado na entrega.
+
+Na conferência Release de 03/11/2026, passaram 257 testes xUnit: 41 Domain, 51 Application e 165 Integration, incluindo a configuração de validação do pool Oracle. As porcentagens de cobertura informadas acima pertencem à medição de 02/11.
 
 ## Tecnologias utilizadas
 
@@ -680,7 +733,7 @@ Outros arquivos úteis:
 
 | Requisito | Onde encontrar |
 |---|---|
-| Health Checks | `/health`, com Oracle e duas URLs externas |
+| Health Checks | `/health`, com Oracle, MongoDB e duas URLs externas |
 | Logging estruturado | Serilog, console, arquivo diário e logs de requisição |
 | Métricas | OpenTelemetry e `/metrics` para Prometheus |
 | Testes unitários em AAA | Projetos de domínio e aplicação, com xUnit e Moq |
@@ -688,6 +741,6 @@ Outros arquivos úteis:
 | Organização e documentação | Projetos por camada e instruções de execução neste README |
 | Integração com Java | Schema Oracle compartilhado e SQL em `docs/script.sql` |
 
-Tracing distribuído e a correlação consistente dos identificadores entre logs e respostas ainda precisam ser implementados para completar esses pontos de observabilidade. A autenticação JWT compartilhada com Java e os testes de autorização já estão implementados.
+Tracing entre as camadas, propagação W3C e correlação de logs, respostas e erros estão implementados e cobertos pelos testes de integração. A exportação externa é opcional e depende de um coletor OTLP configurado. O ambiente Azure atual mantém métricas e logs correlacionados, sem um coletor de traces publicado. A autenticação JWT compartilhada com Java e os testes de autorização também estão implementados.
 
-Criação e consulta de agendamentos já estão disponíveis, com autenticação, isolamento por tutor e testes HTTP de persistência, validação e duplicidade. Lembretes e cache continuam como evolução prevista; as demais tabelas presentes no SQL não representam endpoints já disponíveis. A concorrência real e a integração completa com Java, Oracle e dispositivo ainda exigem validação no ambiente integrado.
+Criação e consulta de agendamentos já estão disponíveis, com autenticação, isolamento por tutor e testes HTTP de persistência, validação e duplicidade. Lembretes e cache continuam como evolução prevista; as demais tabelas presentes no SQL não representam endpoints já disponíveis. A validação pública de 02/11/2026 conferiu JWT Java, persistência no Oracle, conflito concorrente de agendamento e auditoria no Atlas. O uso pelo aplicativo e a notificação ainda precisam ser conferidos no dispositivo.
