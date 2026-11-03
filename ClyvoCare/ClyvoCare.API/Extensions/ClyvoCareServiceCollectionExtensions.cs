@@ -4,6 +4,7 @@ using ClyvoCare.Application.Services.Interfaces;
 using ClyvoCare.Infrastructure.Persistence;
 using ClyvoCare.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Oracle.ManagedDataAccess.Client;
 
 namespace ClyvoCare.API.Extensions;
 
@@ -12,6 +13,17 @@ namespace ClyvoCare.API.Extensions;
 /// </summary>
 public static class ClyvoCareServiceCollectionExtensions
 {
+    public static string GetClyvoCareOracleConnectionString(
+        this IConfiguration configuration,
+        string connectionStringName = "ClyvoCareOracle")
+    {
+        var connectionString = configuration.GetConnectionString(connectionStringName)
+            ?? throw new InvalidOperationException($"Connection string '{connectionStringName}' was not found.");
+
+        // FIAP expires idle sessions; validate pooled connections before handing them to a request.
+        return new OracleConnectionStringBuilder(connectionString) { ValidateConnection = true }.ConnectionString;
+    }
+
     /// <summary>
     /// Registra o <see cref="ClyvoCareContext"/> com Oracle FIAP.
     /// </summary>
@@ -25,9 +37,7 @@ public static class ClyvoCareServiceCollectionExtensions
         IConfiguration configuration,
         string connectionStringName = "ClyvoCareOracle")
     {
-        var connectionString = configuration.GetConnectionString(connectionStringName)
-            ?? throw new InvalidOperationException(
-                $"Connection string '{connectionStringName}' não encontrada. Configure em appsettings.json ou no ambiente.");
+        var connectionString = configuration.GetClyvoCareOracleConnectionString(connectionStringName);
 
         services.AddDbContext<ClyvoCareContext>(options =>
             options.UseOracle(connectionString));

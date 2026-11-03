@@ -94,8 +94,7 @@ public partial class Program
 
         builder.Services.AddClyvoCareTracing(builder.Configuration);
 
-        var oracleConnectionString = builder.Configuration.GetConnectionString("ClyvoCareOracle")
-            ?? throw new InvalidOperationException("Connection string 'ClyvoCareOracle' não encontrada.");
+        var oracleConnectionString = builder.Configuration.GetClyvoCareOracleConnectionString();
 
         builder.Services.AddHealthChecks()
             .AddOracle(oracleConnectionString, name: "Oracle FIAP")
