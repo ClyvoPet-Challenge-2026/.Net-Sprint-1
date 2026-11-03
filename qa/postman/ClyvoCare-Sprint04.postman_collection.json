@@ -1,0 +1,195 @@
+{
+  "info": {
+    "name": "ClyvoCare - Sprint 4 - Cloud API QA",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Six public API integration and regression cases. Runs against the published Java/.NET APIs without credentials or data mutation. Authenticated writes and business rules are also covered by the existing xUnit suite and the manual test plan in Azure Boards."
+  },
+  "variable": [
+    {
+      "key": "javaBaseUrl",
+      "value": "https://clyvocare-java-rm561584.azurewebsites.net"
+    },
+    {
+      "key": "dotnetBaseUrl",
+      "value": "https://clyvocare-dotnet-rm561584.azurewebsites.net"
+    }
+  ],
+  "item": [
+    {
+      "name": "QA-A01 - Java public states",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{javaBaseUrl}}/estados",
+        "auth": {
+          "type": "noauth"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Returns HTTP 200', () => pm.response.to.have.status(200));",
+              "const states = pm.response.json();",
+              "pm.test('Contains the predefined SP state and positive IDs', () => {",
+              "  pm.expect(states).to.be.an('array').that.is.not.empty;",
+              "  pm.expect(states.some(state => state.uf === 'SP')).to.eql(true);",
+              "  pm.expect(states.every(state => Number.isInteger(state.id) && state.id > 0)).to.eql(true);",
+              "});",
+              "pm.collectionVariables.set('javaStates', JSON.stringify(states.map(state => `${state.id}:${state.uf}`).sort()));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "QA-A02 - Shared Oracle states in .NET",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{dotnetBaseUrl}}/api/estados",
+        "auth": {
+          "type": "noauth"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Returns HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Matches the IDs and UFs returned by Java', () => {",
+              "  const states = pm.response.json().map(state => `${state.id}:${state.uf}`).sort();",
+              "  pm.expect(states).to.eql(JSON.parse(pm.collectionVariables.get('javaStates')));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "QA-A03 - Filtered and ordered clinic page",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{dotnetBaseUrl}}/api/clinicas?pageNumber=1&pageSize=1&sortBy=id&sortDirection=asc",
+        "auth": {
+          "type": "noauth"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Returns HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Honors the predefined pagination input', () => {",
+              "  const page = pm.response.json();",
+              "  pm.expect(page.pageNumber).to.eql(1);",
+              "  pm.expect(page.pageSize).to.eql(1);",
+              "  pm.expect(page.items).to.be.an('array').with.length.at.most(1);",
+              "  pm.expect(page.totalCount).to.be.a('number').that.is.at.least(0);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "QA-A04 - Reject invalid page zero",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{dotnetBaseUrl}}/api/clinicas?pageNumber=0&pageSize=5",
+        "auth": {
+          "type": "noauth"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Returns HTTP 400', () => pm.response.to.have.status(400));",
+              "pm.test('ProblemDetails and response share the same trace ID', () => {",
+              "  const problem = pm.response.json();",
+              "  pm.expect(problem.status).to.eql(400);",
+              "  pm.expect(problem.traceId).to.match(/^[0-9a-f]{32}$/);",
+              "  pm.expect(problem.traceId).to.eql(pm.response.headers.get('X-Trace-Id'));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "QA-A05 - Clinic does not exist",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{dotnetBaseUrl}}/api/clinicas/9223372036854775807",
+        "auth": {
+          "type": "noauth"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Returns HTTP 404 for the predefined missing ID', () => pm.response.to.have.status(404));",
+              "pm.test('Preserves request correlation on the missing resource response', () => {",
+              "  pm.expect(pm.response.headers.get('X-Trace-Id')).to.match(/^[0-9a-f]{32}$/);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "QA-A06 - Clinic creation requires authentication",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{dotnetBaseUrl}}/api/clinicas",
+        "auth": {
+          "type": "noauth"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Returns HTTP 401 before payload validation', () => pm.response.to.have.status(401));",
+              "pm.test('Does not expose a created resource Location', () => {",
+              "  pm.expect(pm.response.headers.has('Location')).to.eql(false);",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
