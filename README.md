@@ -667,6 +667,8 @@ O provisionamento M0 tem uma verificação isolada: `node scripts/provision-atla
 
 ## Quality Assurance: regressão das APIs publicadas
 
+Vídeo de automação de QA: [demonstração com Postman e Newman](https://www.youtube.com/watch?v=ypkzUlo0T_k).
+
 A [coleção Postman](qa/postman/ClyvoCare-Sprint04.postman_collection.json) contém seis casos e doze asserções, executados nas URLs Azure. Ela compara os estados retornados por Java/.NET e confere paginação, validação com `400`, recurso inexistente com `404` e escrita anônima recusada com `401`. Não precisa de credenciais nem cria registros. O [plano manual no Azure Boards](https://dev.azure.com/RM561336/CHALLENGE%20-%20CLYVO%20CARE/_workitems/edit/183) detalha também CRUD autenticado, agendamentos, isolamento e regras de assinatura.
 
 Para executar com Node.js e Newman, na raiz deste repositório:
@@ -677,7 +679,7 @@ npx --yes newman@6.2.3 run qa/postman/ClyvoCare-Sprint04.postman_collection.json
 
 O runner mostra os resultados no terminal e grava o JUnit em `artifacts/qa/newman.xml`, pasta ignorada pelo Git. A primeira execução pode baixar o Newman. Também é possível importar a coleção no Postman; as variáveis `javaBaseUrl` e `dotnetBaseUrl` já apontam para as APIs publicadas.
 
-Esses casos complementam os testes xUnit. As asserções de leitura e recusa de escrita não comprovam, por si só, o CRUD autenticado completo nem a execução de todos os casos manuais. A coleção será entregue na `develop` pública; o vídeo de QA ainda precisa ser gravado e seu link informado na entrega.
+Esses casos complementam os testes xUnit. As asserções de leitura e recusa de escrita não comprovam, por si só, o CRUD autenticado completo nem a execução de todos os casos manuais. A coleção está publicada na `develop` pública, e o vídeo demonstra sua configuração, execução e resultados com Newman.
 
 Na conferência Release de 03/11/2026, passaram 257 testes xUnit: 41 Domain, 51 Application e 165 Integration, incluindo a configuração de validação do pool Oracle. As porcentagens de cobertura informadas acima pertencem à medição de 02/11.
 
